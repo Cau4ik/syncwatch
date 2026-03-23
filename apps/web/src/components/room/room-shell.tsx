@@ -65,12 +65,23 @@ export function RoomShell({ slug }: { slug: string }) {
   const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const negotiationLocksRef = useRef<Set<string>>(new Set());
+  const microphoneEnabledRef = useRef(false);
+  const cameraEnabledRef = useRef(false);
+  const mediaTouchedRef = useRef(false);
 
   useEffect(() => {
     const syncSession = () => setSession(loadSession());
     syncSession();
     return subscribeSessionChange(syncSession);
   }, []);
+
+  useEffect(() => {
+    microphoneEnabledRef.current = microphoneEnabled;
+  }, [microphoneEnabled]);
+
+  useEffect(() => {
+    cameraEnabledRef.current = cameraEnabled;
+  }, [cameraEnabled]);
 
   useEffect(() => {
     return () => {
@@ -90,6 +101,7 @@ export function RoomShell({ slug }: { slug: string }) {
     let active = true;
 
     autoJoinRef.current = false;
+    mediaTouchedRef.current = false;
     setError("");
     setLoading(true);
 
@@ -144,6 +156,10 @@ export function RoomShell({ slug }: { slug: string }) {
 
     const me = room.participants.find((participant) => participant.id === participantId);
     if (!me) {
+      return;
+    }
+
+    if (mediaTouchedRef.current) {
       return;
     }
 
@@ -420,9 +436,9 @@ export function RoomShell({ slug }: { slug: string }) {
       socket.emit("participant:media", {
         roomSlug: slug,
         patch: {
-          isMuted: !microphoneEnabled,
-          cameraEnabled,
-          status: microphoneEnabled ? "listening" : "online"
+          isMuted: !microphoneEnabledRef.current,
+          cameraEnabled: cameraEnabledRef.current,
+          status: microphoneEnabledRef.current ? "listening" : "online"
         }
       });
     });
@@ -481,6 +497,21 @@ export function RoomShell({ slug }: { slug: string }) {
       setSocketConnected(false);
     };
   }, [guestName, participantId, room?.hostId, session, slug]);
+
+  useEffect(() => {
+    if (!socketConnected || !participantId || !socketRef.current) {
+      return;
+    }
+
+    socketRef.current.emit("participant:media", {
+      roomSlug: slug,
+      patch: {
+        isMuted: !microphoneEnabled,
+        cameraEnabled,
+        status: microphoneEnabled ? "listening" : "online"
+      }
+    });
+  }, [cameraEnabled, microphoneEnabled, participantId, slug, socketConnected]);
 
   const participantIdsKey = room?.participants.map((participant) => participant.id).sort().join("|") ?? "";
 
@@ -701,6 +732,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
   async function toggleMicrophone() {
     try {
+      mediaTouchedRef.current = true;
       const localStream = await ensureLocalMedia({ audio: true });
       const audioTrack = localStream.getAudioTracks()[0];
       if (!audioTrack) {
@@ -721,6 +753,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
   async function toggleCamera() {
     try {
+      mediaTouchedRef.current = true;
       const localStream = await ensureLocalMedia({ video: true });
       const videoTrack = localStream.getVideoTracks()[0];
       if (!videoTrack) {

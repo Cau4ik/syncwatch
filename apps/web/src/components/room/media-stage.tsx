@@ -91,12 +91,16 @@ function StreamCard({
     const videoElement = videoRef?.current ?? internalVideoRef.current;
     if (videoElement) {
       videoElement.srcObject = stream;
+      videoElement.muted = true;
     }
 
     if (audioRef.current) {
       audioRef.current.srcObject = stream;
+      if (!muted) {
+        void audioRef.current.play().catch(() => {});
+      }
     }
-  }, [stream, videoRef]);
+  }, [muted, stream, videoRef]);
 
   const showsVideo = Boolean(stream && cameraEnabled && stream.getVideoTracks().length > 0);
 
@@ -104,7 +108,7 @@ function StreamCard({
     <article className={`overflow-hidden rounded-[24px] border bg-[#08111b] ${speaking ? "border-emerald-400/25" : "border-white/8"}`}>
       <div className="relative aspect-video bg-[radial-gradient(circle_at_top,rgba(124,247,212,0.12),transparent_20%),linear-gradient(180deg,#182536,#08111b)]">
         {showsVideo ? (
-          <video ref={videoRef ?? internalVideoRef} autoPlay playsInline muted={muted} className="h-full w-full object-cover" />
+          <video ref={videoRef ?? internalVideoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
         ) : (
           <div className="flex h-full items-center justify-center">
             <div className="text-center">
