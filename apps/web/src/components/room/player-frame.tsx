@@ -68,6 +68,9 @@ function createNullPlayer() {
     getCurrentTime() {
       return 0;
     },
+    getDuration() {
+      return 0;
+    },
     getPlayerState() {
       return -1;
     }
