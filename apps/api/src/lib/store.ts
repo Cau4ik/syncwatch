@@ -1,7 +1,29 @@
 import { nanoid } from "nanoid";
 import type { ChatMessage, Participant, PlaybackSnapshot, RoomState } from "@syncwatch/shared";
 
+import { env } from "../config/env.js";
+
 const now = () => new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+
+interface StoredRoom extends RoomState {
+  ownerName: string;
+  persistent: boolean;
+}
+
+function appUrl(path: string) {
+  return `${env.WEB_URL.trim().replace(/\/$/, "")}${path}`;
+}
+
+function toRoomState(room: StoredRoom): RoomState {
+  const { ownerName: _ownerName, persistent: _persistent, ...state } = room;
+
+  return {
+    ...state,
+    playback: { ...state.playback },
+    participants: [...state.participants],
+    messages: [...state.messages]
+  };
+}
 
 function createPlayback(): PlaybackSnapshot {
   return {
@@ -16,14 +38,14 @@ function createPlayback(): PlaybackSnapshot {
   };
 }
 
-const room: RoomState = {
+const room: StoredRoom = {
   id: "room_demo_1",
   slug: "cyber-city-night",
   title: "Вечер кино с друзьями",
   category: "Фантастика",
   hostId: "user_alex",
   visibility: "private",
-  inviteUrl: "syncwatch.app/room/cyber-city-night",
+  inviteUrl: appUrl("/rooms/cyber-city-night"),
   playback: createPlayback(),
   participants: [
     { id: "user_alex", name: "Алекс", role: "host", avatar: "А", status: "online" },
@@ -39,38 +61,47 @@ const room: RoomState = {
       createdAt: now(),
       type: "system"
     }
-  ]
+  ],
+  ownerName: "Alex",
+  persistent: true
 };
 
-const rooms = new Map<string, RoomState>([[room.slug, room]]);
+const rooms = new Map<string, StoredRoom>([[room.slug, room]]);
 
 export const store = {
-  listRooms() {
-    return [...rooms.values()].map((item) => ({
-      id: item.id,
-      slug: item.slug,
-      title: item.title,
-      category: item.category,
-      visibility: item.visibility,
-      participantsCount: item.participants.length,
-      playbackState: item.playback.state
-    }));
+  listRooms(ownerId?: string) {
+    if (!ownerId) {
+      return [];
+    }
+
+    return [...rooms.values()]
+      .filter((item) => item.hostId === ownerId)
+      .map((item) => ({
+        id: item.id,
+        slug: item.slug,
+        title: item.title,
+        category: item.category,
+        visibility: item.visibility,
+        participantsCount: item.participants.length,
+        playbackState: item.playback.state
+      }));
   },
 
   getRoom(slug: string) {
-    return rooms.get(slug) ?? null;
+    const room = rooms.get(slug);
+    return room ? toRoomState(room) : null;
   },
 
-  createRoom(title: string) {
+  createRoom({ title, ownerId, ownerName }: { title: string; ownerId: string; ownerName: string }) {
     const slug = `${title.toLowerCase().replace(/\s+/g, "-")}-${nanoid(6)}`;
-    const nextRoom: RoomState = {
+    const nextRoom: StoredRoom = {
       id: nanoid(),
       slug,
       title,
       category: "Новая комната",
-      hostId: "local-host",
+      hostId: ownerId,
       visibility: "unlisted",
-      inviteUrl: `syncwatch.app/room/${slug}`,
+      inviteUrl: appUrl(`/rooms/${slug}`),
       playback: {
         sourceType: "youtube",
         sourceRef: "jNQXAC9IVRw",
@@ -81,12 +112,14 @@ export const store = {
         playbackRate: 1,
         serverTimestamp: Date.now()
       },
-      participants: [{ id: "local-host", name: "Host", role: "host", avatar: "H", status: "online" }],
-      messages: []
+      participants: [],
+      messages: [],
+      ownerName,
+      persistent: false
     };
 
     rooms.set(slug, nextRoom);
-    return nextRoom;
+    return toRoomState(nextRoom);
   },
 
   upsertParticipant(slug: string, participant: Participant) {
@@ -96,19 +129,27 @@ export const store = {
     const existing = currentRoom.participants.find((item) => item.id === participant.id);
     if (existing) {
       Object.assign(existing, participant);
-      return currentRoom;
+      return toRoomState(currentRoom);
     }
 
     currentRoom.participants.push(participant);
-    return currentRoom;
+    return toRoomState(currentRoom);
   },
 
   removeParticipant(slug: string, participantId: string) {
     const currentRoom = rooms.get(slug);
-    if (!currentRoom) return null;
+    if (!currentRoom) {
+      return { room: null, deleted: false };
+    }
 
     currentRoom.participants = currentRoom.participants.filter((item) => item.id !== participantId);
-    return currentRoom;
+
+    if (!currentRoom.persistent && currentRoom.participants.length === 0) {
+      rooms.delete(slug);
+      return { room: null, deleted: true };
+    }
+
+    return { room: toRoomState(currentRoom), deleted: false };
   },
 
   addMessage(slug: string, payload: Omit<ChatMessage, "id" | "createdAt">) {
@@ -145,6 +186,8 @@ export const store = {
       serverTimestamp: Date.now()
     };
 
-    return currentRoom.playback;
+    return {
+      ...currentRoom.playback
+    };
   }
 };

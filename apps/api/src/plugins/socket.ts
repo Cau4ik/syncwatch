@@ -28,27 +28,33 @@ export function registerSocketLayer(server: HttpServer) {
         role?: Participant["role"];
         participantId?: string;
       }) => {
-      socket.join(roomSlug);
-      socket.data.roomSlug = roomSlug;
-      socket.data.participantId = participantId ?? socket.id;
+        socket.join(roomSlug);
+        socket.data.roomSlug = roomSlug;
+        socket.data.participantId = participantId ?? socket.id;
 
-      const room = store.upsertParticipant(roomSlug, {
-        id: socket.data.participantId,
-        name,
-        role: role ?? "guest",
-        avatar: name.charAt(0).toUpperCase(),
-        status: "online"
-      });
+        const room = store.upsertParticipant(roomSlug, {
+          id: socket.data.participantId,
+          name,
+          role: role ?? "guest",
+          avatar: name.charAt(0).toUpperCase(),
+          status: "online"
+        });
 
-      if (!room) {
-        socket.emit("room:error", { message: "Room not found" });
-        return;
-      }
+        if (!room) {
+          socket.emit("room:error", { message: "Room not found" });
+          return;
+        }
 
-      store.addSystemMessage(roomSlug, `${name} joined the room.`);
+        store.addSystemMessage(roomSlug, `${name} joined the room.`);
+        const nextRoom = store.getRoom(roomSlug);
 
-      io.to(roomSlug).emit("room:state", room);
-      io.to(roomSlug).emit("room:users", room.participants);
+        if (!nextRoom) {
+          socket.emit("room:error", { message: "Room not found" });
+          return;
+        }
+
+        io.to(roomSlug).emit("room:state", nextRoom);
+        io.to(roomSlug).emit("room:users", nextRoom.participants);
       }
     );
 
@@ -93,12 +99,15 @@ export function registerSocketLayer(server: HttpServer) {
       const participantId = socket.data.participantId as string | undefined;
       if (!roomSlug || !participantId) return;
 
-      const room = store.removeParticipant(roomSlug, participantId);
-      if (!room) return;
+      const removal = store.removeParticipant(roomSlug, participantId);
+      if (!removal.room) return;
 
       store.addSystemMessage(roomSlug, "A participant left the room.");
-      io.to(roomSlug).emit("room:state", room);
-      io.to(roomSlug).emit("room:users", room.participants);
+      const nextRoom = store.getRoom(roomSlug);
+      if (!nextRoom) return;
+
+      io.to(roomSlug).emit("room:state", nextRoom);
+      io.to(roomSlug).emit("room:users", nextRoom.participants);
     });
   });
 

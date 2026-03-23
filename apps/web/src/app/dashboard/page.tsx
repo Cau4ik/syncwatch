@@ -6,9 +6,11 @@ import { Plus, Rocket, Search, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { apiFetch, type RoomSummary } from "@/lib/api";
+import { loadSession, subscribeSessionChange, type SessionState } from "@/lib/session";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const [session, setSession] = useState<SessionState | null>(null);
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [title, setTitle] = useState("");
   const [creating, setCreating] = useState(false);
@@ -16,13 +18,35 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    apiFetch<RoomSummary[]>("/api/rooms")
+    const syncSession = () => setSession(loadSession());
+    syncSession();
+    return subscribeSessionChange(syncSession);
+  }, []);
+
+  useEffect(() => {
+    if (!session) {
+      setRooms([]);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    apiFetch<RoomSummary[]>("/api/rooms", {
+      token: session.accessToken
+    })
       .then(setRooms)
       .catch((cause: Error) => setError(cause.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [session]);
 
   async function createRoom() {
+    if (!session) {
+      setError("Нужно войти в аккаунт, чтобы создать комнату.");
+      return;
+    }
+
     if (!title.trim()) {
       setError("Введите название комнаты.");
       return;
@@ -34,8 +58,10 @@ export default function DashboardPage() {
     try {
       const room = await apiFetch<{ slug: string }>("/api/rooms", {
         method: "POST",
-        body: JSON.stringify({ title: title.trim() })
+        body: JSON.stringify({ title: title.trim() }),
+        token: session.accessToken
       });
+      setTitle("");
       router.push(`/rooms/${room.slug}`);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось создать комнату.");
@@ -79,9 +105,9 @@ export default function DashboardPage() {
             className="h-12 w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-white outline-none placeholder:text-mist"
           />
           <div className="mt-6 grid gap-3 text-sm text-mist">
-            <div>{rooms.length} активных комнат в текущем in-memory MVP</div>
+            <div>{rooms.length} rooms in your personal list</div>
             <div>Сначала работаем на rooms, chat, voice и sync</div>
-            <div>Следующий этап после MVP: друзья и история</div>
+            <div>Only rooms created by the current account are shown here</div>
           </div>
           <button className="mt-6 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-white">
             <Rocket className="h-4 w-4" />
@@ -94,6 +120,12 @@ export default function DashboardPage() {
         <div className="rounded-[28px] border border-white/8 bg-[#0a131f]/85 p-6 text-mist">Загружаем список комнат...</div>
       ) : (
         <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {!rooms.length ? (
+            <article className="rounded-[28px] border border-dashed border-white/10 bg-[#0a131f]/55 p-6 text-mist">
+              У тебя пока нет своих комнат. Создай первую комнату выше, потом отправь ссылку другу.
+            </article>
+          ) : null}
+
           {rooms.map((room) => (
             <article key={room.slug} className="rounded-[28px] border border-white/8 bg-[#0a131f]/85 p-5">
               <div className="mb-5 aspect-[5/4] rounded-[22px] bg-[linear-gradient(180deg,#223046,#0a131f)]" />

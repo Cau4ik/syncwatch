@@ -10,24 +10,39 @@ import { ChatPanel } from "@/components/room/chat-panel";
 import { ParticipantsPanel } from "@/components/room/participants-panel";
 import { apiFetch } from "@/lib/api";
 import { socketUrl } from "@/lib/config";
+import { loadSession, subscribeSessionChange, type SessionState } from "@/lib/session";
 
 const roomJoinStorageKey = (slug: string) => `syncwatch-room-${slug}`;
 
 export function RoomShell({ slug }: { slug: string }) {
   const [room, setRoom] = useState<RoomState | null>(null);
+  const [session, setSession] = useState<SessionState | null>(null);
   const [guestName, setGuestName] = useState("");
   const [participantId, setParticipantId] = useState("");
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState("");
   const socketRef = useRef<Socket | null>(null);
+  const autoJoinRef = useRef(false);
+
+  useEffect(() => {
+    const syncSession = () => setSession(loadSession());
+    syncSession();
+    return subscribeSessionChange(syncSession);
+  }, []);
 
   useEffect(() => {
     let active = true;
 
+    autoJoinRef.current = false;
+    setParticipantId("");
+    setError("");
+
     const storedName = window.localStorage.getItem(roomJoinStorageKey(slug));
     if (storedName) {
       setGuestName(storedName);
+    } else {
+      setGuestName(loadSession()?.user.username ?? "");
     }
 
     apiFetch<RoomState>(`/api/rooms/${slug}`)
@@ -52,7 +67,44 @@ export function RoomShell({ slug }: { slug: string }) {
   }, [slug]);
 
   useEffect(() => {
-    if (!participantId || !guestName || socketRef.current) {
+    if (!room || participantId || joining || autoJoinRef.current) {
+      return;
+    }
+
+    const participantName = guestName.trim() || session?.user.username?.trim();
+    if (!participantName) {
+      return;
+    }
+
+    autoJoinRef.current = true;
+
+    void (async () => {
+      setJoining(true);
+      setError("");
+
+      try {
+        const joined = await apiFetch<RoomState & { participantId: string }>(`/api/rooms/${slug}/join`, {
+          method: "POST",
+          body: JSON.stringify({ name: participantName }),
+          token: session?.accessToken
+        });
+
+        window.localStorage.setItem(roomJoinStorageKey(slug), participantName);
+        setGuestName(participantName);
+        setParticipantId(joined.participantId);
+        setRoom(joined);
+      } catch (cause) {
+        autoJoinRef.current = false;
+        setError(cause instanceof Error ? cause.message : "Не удалось войти в комнату.");
+      } finally {
+        setJoining(false);
+      }
+    })();
+  }, [guestName, joining, participantId, room, session, slug]);
+
+  useEffect(() => {
+    const participantName = guestName.trim() || session?.user.username?.trim() || "";
+    if (!participantId || !participantName || socketRef.current) {
       return;
     }
 
@@ -65,7 +117,8 @@ export function RoomShell({ slug }: { slug: string }) {
     socket.on("connect", () => {
       socket.emit("room:join", {
         roomSlug: slug,
-        name: guestName,
+        name: participantName,
+        role: session ? (session.user.id === room?.hostId ? "host" : "user") : "guest",
         participantId
       });
     });
@@ -101,12 +154,14 @@ export function RoomShell({ slug }: { slug: string }) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [guestName, participantId, slug]);
+  }, [guestName, participantId, room?.hostId, session, slug]);
 
-  const canInteract = Boolean(room && participantId && guestName);
+  const canInteract = Boolean(room && participantId);
 
   async function joinRoom() {
-    if (!guestName.trim()) {
+    const participantName = guestName.trim() || session?.user.username?.trim() || "";
+
+    if (!participantName) {
       setError("Введите имя для входа в комнату.");
       return;
     }
@@ -117,13 +172,16 @@ export function RoomShell({ slug }: { slug: string }) {
     try {
       const joined = await apiFetch<RoomState & { participantId: string }>(`/api/rooms/${slug}/join`, {
         method: "POST",
-        body: JSON.stringify({ name: guestName.trim() })
+        body: JSON.stringify({ name: participantName }),
+        token: session?.accessToken
       });
 
-      window.localStorage.setItem(roomJoinStorageKey(slug), guestName.trim());
+      window.localStorage.setItem(roomJoinStorageKey(slug), participantName);
+      setGuestName(participantName);
       setParticipantId(joined.participantId);
       setRoom(joined);
     } catch (cause) {
+      autoJoinRef.current = false;
       setError(cause instanceof Error ? cause.message : "Не удалось войти в комнату.");
     } finally {
       setJoining(false);
@@ -135,7 +193,7 @@ export function RoomShell({ slug }: { slug: string }) {
     socketRef.current.emit("chat:send", {
       roomSlug: slug,
       text,
-      authorName: guestName
+      authorName: guestName.trim() || session?.user.username || "Guest"
     });
   }
 
@@ -153,6 +211,16 @@ export function RoomShell({ slug }: { slug: string }) {
       roomSlug: slug,
       currentTime: nextTime
     });
+  }
+
+  async function copyInviteLink() {
+    if (!room) return;
+
+    try {
+      await navigator.clipboard.writeText(room.inviteUrl);
+    } catch {
+      setError("Не удалось скопировать ссылку комнаты.");
+    }
   }
 
   if (loading) {
@@ -192,7 +260,7 @@ export function RoomShell({ slug }: { slug: string }) {
               <div className="mb-3 text-xs uppercase tracking-[0.24em] text-mist">Ссылка на комнату</div>
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-[#08111b] px-4 py-4 text-white">
                 <div className="truncate">{room.inviteUrl}</div>
-                <button className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                <button type="button" onClick={copyInviteLink} className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">
                   <Copy className="h-4 w-4" />
                 </button>
               </div>

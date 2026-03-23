@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
+import { getRequestUser } from "../../lib/request-user.js";
 import { store } from "../../lib/store.js";
 
 const createRoomSchema = z.object({
@@ -9,16 +10,29 @@ const createRoomSchema = z.object({
 });
 
 const joinRoomSchema = z.object({
-  name: z.string().min(2).max(24)
+  name: z.string().min(2).max(24).optional()
 });
 
 export async function roomRoutes(app: FastifyInstance) {
-  app.get("/api/rooms", async () => store.listRooms());
+  app.get("/api/rooms", async (request) => {
+    const user = getRequestUser(request);
+    return store.listRooms(user?.id);
+  });
 
   app.post("/api/rooms", async (request, reply) => {
+    const user = getRequestUser(request);
+    if (!user) {
+      return reply.code(401).send({ message: "Unauthorized" });
+    }
+
     const body = createRoomSchema.parse(request.body);
-    const room = store.createRoom(body.title);
-    return reply.code(201).send(room);
+    const room = store.createRoom({
+      title: body.title,
+      ownerId: user.id,
+      ownerName: user.username
+    });
+
+    return reply.code(201).send({ slug: room.slug });
   });
 
   app.get("/api/rooms/:slug", async (request, reply) => {
@@ -34,14 +48,26 @@ export async function roomRoutes(app: FastifyInstance) {
 
   app.post("/api/rooms/:slug/join", async (request, reply) => {
     const params = z.object({ slug: z.string() }).parse(request.params);
-    const body = joinRoomSchema.parse(request.body);
-    const participantId = `guest-${nanoid(8)}`;
+    const body = joinRoomSchema.parse(request.body ?? {});
+    const currentRoom = store.getRoom(params.slug);
+
+    if (!currentRoom) {
+      return reply.code(404).send({ message: "Room not found" });
+    }
+
+    const user = getRequestUser(request);
+    const participantId = user?.id ?? `guest-${nanoid(8)}`;
+    const participantName = user?.username ?? body.name?.trim();
+
+    if (!participantName) {
+      return reply.code(400).send({ message: "Name is required" });
+    }
 
     const room = store.upsertParticipant(params.slug, {
       id: participantId,
-      name: body.name,
-      role: "guest",
-      avatar: body.name.charAt(0).toUpperCase(),
+      name: participantName,
+      role: user ? (currentRoom.hostId === user.id ? "host" : "user") : "guest",
+      avatar: participantName.charAt(0).toUpperCase(),
       status: "online"
     });
 
