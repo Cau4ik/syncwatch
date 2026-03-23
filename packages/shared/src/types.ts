@@ -45,6 +45,7 @@ export interface RoomState {
   title: string;
   category: string;
   hostId: string;
+  playbackLeaderId?: string;
   visibility: "public" | "unlisted" | "private";
   participants: Participant[];
   playback: PlaybackSnapshot;

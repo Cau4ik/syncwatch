@@ -16,15 +16,16 @@ declare global {
           videoId: string;
           playerVars?: Record<string, string | number>;
           events?: {
-            onReady?: () => void;
-          };
-        }
+          onReady?: () => void;
+        };
+      }
       ) => {
         loadVideoById: (videoId: string, startSeconds?: number) => void;
         playVideo: () => void;
         pauseVideo: () => void;
         seekTo: (seconds: number, allowSeekAhead: boolean) => void;
         getCurrentTime: () => number;
+        getDuration: () => number;
         getPlayerState: () => number;
       };
     };
@@ -75,12 +76,16 @@ function createNullPlayer() {
 
 export function PlayerFrame({
   playback,
+  isPlaybackLeader,
   onTogglePlayback,
-  onSeek
+  onSeek,
+  onPlaybackTelemetry
 }: {
   playback: PlaybackSnapshot;
+  isPlaybackLeader?: boolean;
   onTogglePlayback?: () => void;
   onSeek?: (deltaSeconds: number) => void;
+  onPlaybackTelemetry?: (payload: { currentTime: number; duration?: number; state?: PlaybackSnapshot["state"] }) => void;
 }) {
   const youtubeHostRef = useRef<HTMLDivElement | null>(null);
   const youtubePlayerRef = useRef<ReturnType<typeof createNullPlayer> | null>(null);
@@ -198,6 +203,58 @@ export function PlayerFrame({
       video.pause();
     }
   }, [effectiveCurrentTime, playback]);
+
+  useEffect(() => {
+    if (!isPlaybackLeader || !onPlaybackTelemetry) {
+      return;
+    }
+
+    if (playback.sourceType === "youtube") {
+      if (!ready || !youtubePlayerRef.current) {
+        return;
+      }
+
+      const interval = window.setInterval(() => {
+        const player = youtubePlayerRef.current;
+        if (!player) {
+          return;
+        }
+
+        const rawState = player.getPlayerState?.();
+        const state: PlaybackSnapshot["state"] =
+          rawState === 1 ? "playing" : rawState === 2 ? "paused" : playback.state;
+
+        onPlaybackTelemetry({
+          currentTime: player.getCurrentTime?.() ?? 0,
+          duration: player.getDuration?.() ?? playback.duration,
+          state
+        });
+      }, 1000);
+
+      return () => {
+        window.clearInterval(interval);
+      };
+    }
+
+    if ((playback.sourceType === "upload" || playback.sourceType === "hls") && htmlVideoRef.current) {
+      const interval = window.setInterval(() => {
+        const video = htmlVideoRef.current;
+        if (!video) {
+          return;
+        }
+
+        onPlaybackTelemetry({
+          currentTime: video.currentTime,
+          duration: Number.isFinite(video.duration) ? video.duration : playback.duration,
+          state: video.paused ? "paused" : "playing"
+        });
+      }, 1000);
+
+      return () => {
+        window.clearInterval(interval);
+      };
+    }
+  }, [isPlaybackLeader, onPlaybackTelemetry, playback.duration, playback.sourceType, playback.state, ready]);
 
   return (
     <div className="rounded-[32px] border border-white/8 bg-[#050b14]/90 p-4 shadow-glow">

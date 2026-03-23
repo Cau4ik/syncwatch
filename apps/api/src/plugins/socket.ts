@@ -120,18 +120,72 @@ export function registerSocketLayer(server: HttpServer) {
     });
 
     socket.on("video:play", ({ roomSlug }: { roomSlug: string }) => {
-      const playback = store.updatePlayback(roomSlug, { state: "playing" });
+      const playback = store.updatePlayback(roomSlug, { state: "playing" }, socket.data.participantId as string | undefined);
+      const room = store.getRoom(roomSlug);
       if (playback) io.to(roomSlug).emit("video:state", playback);
+      if (room) io.to(roomSlug).emit("room:state", room);
     });
 
     socket.on("video:pause", ({ roomSlug }: { roomSlug: string }) => {
-      const playback = store.updatePlayback(roomSlug, { state: "paused" });
+      const playback = store.updatePlayback(roomSlug, { state: "paused" }, socket.data.participantId as string | undefined);
+      const room = store.getRoom(roomSlug);
       if (playback) io.to(roomSlug).emit("video:state", playback);
+      if (room) io.to(roomSlug).emit("room:state", room);
     });
 
     socket.on("video:seek", ({ roomSlug, currentTime }: { roomSlug: string; currentTime: number }) => {
-      const playback = store.updatePlayback(roomSlug, { currentTime });
+      const playback = store.updatePlayback(roomSlug, { currentTime }, socket.data.participantId as string | undefined);
+      const room = store.getRoom(roomSlug);
       if (playback) io.to(roomSlug).emit("video:state", playback);
+      if (room) io.to(roomSlug).emit("room:state", room);
+    });
+
+    socket.on(
+      "video:sync",
+      ({
+        roomSlug,
+        currentTime,
+        duration,
+        state
+      }: {
+        roomSlug: string;
+        currentTime: number;
+        duration?: number;
+        state?: "playing" | "paused" | "idle";
+      }) => {
+        const playback = store.updatePlayback(
+          roomSlug,
+          {
+            currentTime,
+            ...(typeof duration === "number" && Number.isFinite(duration) ? { duration } : {}),
+            ...(state ? { state } : {})
+          },
+          socket.data.participantId as string | undefined
+        );
+        const room = store.getRoom(roomSlug);
+        if (playback) {
+          io.to(roomSlug).emit("video:state", playback);
+        }
+        if (room) {
+          io.to(roomSlug).emit("room:state", room);
+        }
+      }
+    );
+
+    socket.on("video:become-leader", ({ roomSlug }: { roomSlug: string }) => {
+      const room = store.getRoom(roomSlug);
+      if (!room) {
+        return;
+      }
+
+      const playback = store.updatePlayback(roomSlug, {}, socket.data.participantId as string | undefined);
+      const nextRoom = store.getRoom(roomSlug);
+      if (playback) {
+        io.to(roomSlug).emit("video:state", playback);
+      }
+      if (nextRoom) {
+        io.to(roomSlug).emit("room:state", nextRoom);
+      }
     });
 
     socket.on(

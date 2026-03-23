@@ -766,6 +766,7 @@ export function RoomShell({ slug }: { slug: string }) {
   }, [room?.id, slug, socketConnected]);
 
   const canInteract = Boolean(room && participantId);
+  const isPlaybackLeader = Boolean(room && participantId && room.playbackLeaderId === participantId);
 
   function patchLocalParticipant(patch: Partial<Participant>) {
     if (!participantId) {
@@ -894,6 +895,19 @@ export function RoomShell({ slug }: { slug: string }) {
     const unclampedTime = Math.max(0, effectiveCurrentTime + deltaSeconds);
     const nextTime = room.playback.duration > 0 ? Math.min(room.playback.duration, unclampedTime) : unclampedTime;
     socketRef.current.emit("video:seek", { roomSlug: slug, currentTime: nextTime });
+  }
+
+  function handlePlaybackTelemetry(payload: { currentTime: number; duration?: number; state?: RoomState["playback"]["state"] }) {
+    if (!socketRef.current || !room || !participantId || room.playbackLeaderId !== participantId) {
+      return;
+    }
+
+    socketRef.current.emit("video:sync", {
+      roomSlug: slug,
+      currentTime: payload.currentTime,
+      duration: payload.duration,
+      state: payload.state
+    });
   }
 
   async function copyInviteLink() {
@@ -1031,7 +1045,13 @@ export function RoomShell({ slug }: { slug: string }) {
           Source attached room
         </div>
 
-        <PlayerFrame playback={room.playback} onTogglePlayback={togglePlayback} onSeek={seek} />
+        <PlayerFrame
+          playback={room.playback}
+          isPlaybackLeader={isPlaybackLeader}
+          onTogglePlayback={togglePlayback}
+          onSeek={seek}
+          onPlaybackTelemetry={handlePlaybackTelemetry}
+        />
 
         <MediaStage remoteMediaTiles={remoteMediaTiles} remoteVolumes={remoteVolumes} />
 
@@ -1129,6 +1149,7 @@ export function RoomShell({ slug }: { slug: string }) {
             <p>Realtime: {socketConnected ? "connected" : "fallback sync mode"}</p>
             <p>Microphone: {microphoneEnabled ? "enabled" : "off"}</p>
             <p>Playback: one shared screen with synced play, pause, and seek</p>
+            <p>Playback leader: {isPlaybackLeader ? "you" : room.playbackLeaderId === room.hostId ? "room host" : "another participant"}</p>
             <p>Temporary room session: stays available for a short grace period after everyone leaves</p>
           </div>
         </section>

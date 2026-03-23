@@ -84,6 +84,7 @@ const demoRoom: StoredRoom = {
   title: "Demo cinema room",
   category: "YouTube",
   hostId: "user_alex",
+  playbackLeaderId: "user_alex",
   visibility: "private",
   inviteUrl: appUrl("/rooms/cyber-city-night"),
   playback: createDemoPlayback(),
@@ -175,6 +176,7 @@ export const store = {
       title,
       category,
       hostId: hostParticipantId,
+      playbackLeaderId: hostParticipantId,
       visibility,
       inviteUrl: appUrl(`/rooms/${slug}`),
       playback: {
@@ -252,6 +254,7 @@ export const store = {
     if (currentRoom.hostId === participantId) {
       const nextHost = currentRoom.participants[0];
       currentRoom.hostId = nextHost.id;
+      currentRoom.playbackLeaderId = nextHost.id;
       currentRoom.ownerName = nextHost.name;
       currentRoom.participants = currentRoom.participants.map((item) => ({
         ...item,
@@ -287,7 +290,7 @@ export const store = {
     });
   },
 
-  updatePlayback(slug: string, patch: Partial<PlaybackSnapshot>) {
+  updatePlayback(slug: string, patch: Partial<PlaybackSnapshot>, playbackLeaderId?: string) {
     purgeExpiredRooms();
     const currentRoom = rooms.get(slug);
     if (!currentRoom) return null;
@@ -299,6 +302,10 @@ export const store = {
       ...patch,
       serverTimestamp: Date.now()
     };
+
+    if (playbackLeaderId) {
+      currentRoom.playbackLeaderId = playbackLeaderId;
+    }
 
     if (currentRoom.playback.duration > 0) {
       currentRoom.playback.currentTime = Math.max(0, Math.min(currentRoom.playback.currentTime, currentRoom.playback.duration));
