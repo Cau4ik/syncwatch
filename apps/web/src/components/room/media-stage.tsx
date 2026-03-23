@@ -86,6 +86,8 @@ function StreamCard({
 }) {
   const internalVideoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioTrackCount = stream?.getAudioTracks().length ?? 0;
+  const videoTrackCount = stream?.getVideoTracks().length ?? 0;
 
   useEffect(() => {
     const videoElement = videoRef?.current ?? internalVideoRef.current;
@@ -96,13 +98,13 @@ function StreamCard({
 
     if (audioRef.current) {
       audioRef.current.srcObject = stream;
-      if (!muted) {
+      if (!muted && audioTrackCount > 0) {
         void audioRef.current.play().catch(() => {});
       }
     }
-  }, [muted, stream, videoRef]);
+  }, [audioTrackCount, muted, stream, videoRef, videoTrackCount]);
 
-  const showsVideo = Boolean(stream && cameraEnabled && stream.getVideoTracks().length > 0);
+  const showsVideo = Boolean(stream && cameraEnabled && videoTrackCount > 0);
 
   return (
     <article className={`overflow-hidden rounded-[24px] border bg-[#08111b] ${speaking ? "border-emerald-400/25" : "border-white/8"}`}>

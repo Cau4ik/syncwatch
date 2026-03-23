@@ -7,6 +7,7 @@ const now = () => new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minu
 
 interface StoredRoom extends RoomState {
   ownerName: string;
+  ownerUserId?: string;
   persistent: boolean;
   emptySince: number | null;
 }
@@ -30,7 +31,7 @@ function purgeExpiredRooms() {
 }
 
 function toRoomState(room: StoredRoom): RoomState {
-  const { ownerName: _ownerName, persistent: _persistent, emptySince: _emptySince, ...state } = room;
+  const { ownerName: _ownerName, ownerUserId: _ownerUserId, persistent: _persistent, emptySince: _emptySince, ...state } = room;
 
   return {
     ...state,
@@ -80,6 +81,7 @@ const demoRoom: StoredRoom = {
     }
   ],
   ownerName: "Alex",
+  ownerUserId: "user_alex",
   persistent: true,
   emptySince: null
 };
@@ -95,7 +97,7 @@ export const store = {
     }
 
     return [...rooms.values()]
-      .filter((item) => item.hostId === ownerId)
+      .filter((item) => item.ownerUserId === ownerId)
       .map((item) => ({
         id: item.id,
         slug: item.slug,
@@ -124,7 +126,7 @@ export const store = {
     persistent = false
   }: {
     title: string;
-    ownerId: string;
+    ownerId?: string;
     ownerName: string;
     playback: PlaybackSnapshot;
     category: string;
@@ -132,8 +134,9 @@ export const store = {
     persistent?: boolean;
   }) {
     const slug = `${title.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, "-").replace(/^-+|-+$/g, "") || "room"}-${nanoid(6)}`;
+    const hostParticipantId = `participant-${nanoid(10)}`;
     const hostParticipant: Participant = {
-      id: ownerId,
+      id: hostParticipantId,
       name: ownerName,
       role: "host",
       avatar: ownerName.charAt(0).toUpperCase(),
@@ -145,7 +148,7 @@ export const store = {
       slug,
       title,
       category,
-      hostId: ownerId,
+      hostId: hostParticipantId,
       visibility,
       inviteUrl: appUrl(`/rooms/${slug}`),
       playback: {
@@ -165,6 +168,7 @@ export const store = {
         }
       ],
       ownerName,
+      ownerUserId: ownerId,
       persistent,
       emptySince: null
     };

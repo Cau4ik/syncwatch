@@ -222,8 +222,6 @@ export function RoomShell({ slug }: { slug: string }) {
     const remoteStream = remoteStreamsRef.current.get(remoteParticipantId) ?? new MediaStream();
     remoteStreamsRef.current.set(remoteParticipantId, remoteStream);
 
-    connection.addTransceiver("audio", { direction: "recvonly" });
-    connection.addTransceiver("video", { direction: "recvonly" });
     attachLocalTracks(connection);
 
     connection.onicecandidate = (event) => {
@@ -610,7 +608,10 @@ export function RoomShell({ slug }: { slug: string }) {
     try {
       const joined = await apiFetch<RoomState & { participantId: string }>(`/api/rooms/${slug}/join`, {
         method: "POST",
-        body: JSON.stringify({ name: participantName }),
+        body: JSON.stringify({
+          name: participantName,
+          participantId: loadRoomPresence(slug).participantId || undefined
+        }),
         token: session?.accessToken
       });
 

@@ -19,7 +19,8 @@ const launchRoomSchema = z.object({
 });
 
 const joinRoomSchema = z.object({
-  name: z.string().min(2).max(24).optional()
+  name: z.string().min(2).max(24).optional(),
+  participantId: z.string().min(6).max(64).optional()
 });
 
 const roomMessageSchema = z.object({
@@ -77,7 +78,7 @@ export async function roomRoutes(app: FastifyInstance) {
 
     const created = store.createRoom({
       title: body.title?.trim() || `${getSourceCategory(source)} room`,
-      ownerId: user?.id ?? `guest-host-${nanoid(8)}`,
+      ownerId: user?.id,
       ownerName,
       playback,
       category: getSourceCategory(source)
@@ -111,7 +112,9 @@ export async function roomRoutes(app: FastifyInstance) {
     }
 
     const user = getRequestUser(request);
-    const participantId = user?.id ?? `guest-${nanoid(8)}`;
+    const requestedParticipantId = body.participantId?.trim();
+    const reusableParticipantId = requestedParticipantId && requestedParticipantId !== user?.id ? requestedParticipantId : undefined;
+    const participantId = reusableParticipantId || (user ? `member-${nanoid(8)}` : `guest-${nanoid(8)}`);
     const participantName = user?.username ?? body.name?.trim();
 
     if (!participantName) {
@@ -121,7 +124,7 @@ export async function roomRoutes(app: FastifyInstance) {
     const room = store.upsertParticipant(params.slug, {
       id: participantId,
       name: participantName,
-      role: user ? (currentRoom.hostId === user.id ? "host" : "user") : "guest",
+      role: participantId === currentRoom.hostId ? "host" : user ? "user" : "guest",
       avatar: participantName.charAt(0).toUpperCase(),
       status: "online"
     });
