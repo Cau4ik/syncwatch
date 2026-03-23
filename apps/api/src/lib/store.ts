@@ -30,7 +30,29 @@ function purgeExpiredRooms() {
   }
 }
 
+function syncPlayback(room: StoredRoom) {
+  if (room.playback.state !== "playing") {
+    return;
+  }
+
+  const elapsedSeconds = Math.max(0, (Date.now() - room.playback.serverTimestamp) / 1000) * (room.playback.playbackRate || 1);
+  if (elapsedSeconds <= 0) {
+    return;
+  }
+
+  const nextTime = room.playback.currentTime + elapsedSeconds;
+  const cappedTime = room.playback.duration > 0 ? Math.min(nextTime, room.playback.duration) : nextTime;
+
+  room.playback.currentTime = cappedTime;
+  room.playback.serverTimestamp = Date.now();
+
+  if (room.playback.duration > 0 && cappedTime >= room.playback.duration) {
+    room.playback.state = "paused";
+  }
+}
+
 function toRoomState(room: StoredRoom): RoomState {
+  syncPlayback(room);
   const { ownerName: _ownerName, ownerUserId: _ownerUserId, persistent: _persistent, emptySince: _emptySince, ...state } = room;
 
   return {
@@ -66,8 +88,8 @@ const demoRoom: StoredRoom = {
   inviteUrl: appUrl("/rooms/cyber-city-night"),
   playback: createDemoPlayback(),
   participants: [
-    { id: "user_alex", name: "Alex", role: "host", avatar: "A", status: "online" },
-    { id: "user_masha", name: "Masha", role: "user", avatar: "M", status: "online" }
+    { id: "user_alex", accountId: "user_alex", name: "Alex", role: "host", avatar: "A", status: "online" },
+    { id: "user_masha", accountId: "user_masha", name: "Masha", role: "user", avatar: "M", status: "online" }
   ],
   messages: [
     {
@@ -97,7 +119,10 @@ export const store = {
     }
 
     return [...rooms.values()]
-      .filter((item) => item.ownerUserId === ownerId)
+      .filter((item) => {
+        syncPlayback(item);
+        return item.ownerUserId === ownerId;
+      })
       .map((item) => ({
         id: item.id,
         slug: item.slug,
@@ -137,6 +162,7 @@ export const store = {
     const hostParticipantId = `participant-${nanoid(10)}`;
     const hostParticipant: Participant = {
       id: hostParticipantId,
+      accountId: ownerId,
       name: ownerName,
       role: "host",
       avatar: ownerName.charAt(0).toUpperCase(),
@@ -266,11 +292,19 @@ export const store = {
     const currentRoom = rooms.get(slug);
     if (!currentRoom) return null;
 
+    syncPlayback(currentRoom);
+
     currentRoom.playback = {
       ...currentRoom.playback,
       ...patch,
       serverTimestamp: Date.now()
     };
+
+    if (currentRoom.playback.duration > 0) {
+      currentRoom.playback.currentTime = Math.max(0, Math.min(currentRoom.playback.currentTime, currentRoom.playback.duration));
+    } else {
+      currentRoom.playback.currentTime = Math.max(0, currentRoom.playback.currentTime);
+    }
 
     return {
       ...currentRoom.playback

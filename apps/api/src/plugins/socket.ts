@@ -53,12 +53,14 @@ export function registerSocketLayer(server: HttpServer) {
         roomSlug,
         name,
         role,
-        participantId
+        participantId,
+        accountId
       }: {
         roomSlug: string;
         name: string;
         role?: Participant["role"];
         participantId?: string;
+        accountId?: string;
       }) => {
         socket.join(roomSlug);
         socket.data.roomSlug = roomSlug;
@@ -66,6 +68,7 @@ export function registerSocketLayer(server: HttpServer) {
 
         const room = store.upsertParticipant(roomSlug, {
           id: socket.data.participantId,
+          accountId,
           name,
           role: role ?? "guest",
           avatar: name.charAt(0).toUpperCase(),
@@ -91,7 +94,7 @@ export function registerSocketLayer(server: HttpServer) {
         return;
       }
 
-      leaveCurrentRoom("A participant left the room.");
+      leaveCurrentRoom();
       callback?.({ ok: true });
     });
 
@@ -187,7 +190,7 @@ export function registerSocketLayer(server: HttpServer) {
     });
 
     socket.on("disconnecting", () => {
-      leaveCurrentRoom("A participant left the room.");
+      leaveCurrentRoom();
     });
   });
 

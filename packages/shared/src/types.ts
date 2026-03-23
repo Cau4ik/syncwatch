@@ -5,6 +5,7 @@ export type RoomRole = "host" | "moderator" | "user" | "guest";
 
 export interface Participant {
   id: string;
+  accountId?: string;
   name: string;
   role: RoomRole;
   avatar: string;

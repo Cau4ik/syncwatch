@@ -41,6 +41,18 @@ const rtcConfiguration: RTCConfiguration = {
   ]
 };
 
+type DisplayParticipant = {
+  id: string;
+  name: string;
+  avatar: string;
+  role: Participant["role"];
+  status: Participant["status"];
+  isSpeaking: boolean;
+  isMuted: boolean;
+  isLocal: boolean;
+  memberIds: string[];
+};
+
 export function RoomShell({ slug }: { slug: string }) {
   const router = useRouter();
   const [room, setRoom] = useState<RoomState | null>(null);
@@ -56,6 +68,7 @@ export function RoomShell({ slug }: { slug: string }) {
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [remoteMediaTiles, setRemoteMediaTiles] = useState<RemoteMediaTile[]>([]);
   const [remoteVolumes, setRemoteVolumes] = useState<Record<string, number>>({});
+  const [remoteSpeaking, setRemoteSpeaking] = useState<Record<string, boolean>>({});
   const [localMediaVersion, setLocalMediaVersion] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const autoJoinRef = useRef(false);
@@ -69,6 +82,8 @@ export function RoomShell({ slug }: { slug: string }) {
   const localSpeakingRef = useRef(false);
   const speakingMonitorRef = useRef<number | null>(null);
   const speakingAudioContextRef = useRef<AudioContext | null>(null);
+  const remoteSpeakingContextsRef = useRef<Map<string, AudioContext>>(new Map());
+  const remoteSpeakingIntervalsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
     const syncSession = () => setSession(loadSession());
@@ -97,6 +112,7 @@ export function RoomShell({ slug }: { slug: string }) {
       speakingMonitorRef.current = null;
       void speakingAudioContextRef.current?.close().catch(() => {});
       speakingAudioContextRef.current = null;
+      stopRemoteSpeakingMonitors(false);
     };
   }, []);
 
@@ -179,20 +195,13 @@ export function RoomShell({ slug }: { slug: string }) {
   }
 
   function updateRemoteVolume(remoteParticipantId: string, volume: number) {
-    const targetParticipant = room?.participants.find((participant) => participant.id === remoteParticipantId);
-    const targetKey = normalizeParticipantName(targetParticipant?.name || "");
-
     setRemoteVolumes((current) => {
       const next = { ...current };
 
       for (const participant of room?.participants ?? []) {
-        if (participant.id !== participantId && normalizeParticipantName(participant.name) === targetKey) {
+        if (participant.id !== participantId && getParticipantGroupKey(participant) === remoteParticipantId) {
           next[participant.id] = volume;
         }
-      }
-
-      if (!targetKey) {
-        next[remoteParticipantId] = volume;
       }
 
       return next;
@@ -212,6 +221,21 @@ export function RoomShell({ slug }: { slug: string }) {
 
     void speakingAudioContextRef.current?.close().catch(() => {});
     speakingAudioContextRef.current = null;
+  }
+
+  function stopRemoteSpeakingMonitors(resetState = true) {
+    for (const intervalId of remoteSpeakingIntervalsRef.current.values()) {
+      window.clearInterval(intervalId);
+    }
+    remoteSpeakingIntervalsRef.current.clear();
+
+    for (const context of remoteSpeakingContextsRef.current.values()) {
+      void context.close().catch(() => {});
+    }
+    remoteSpeakingContextsRef.current.clear();
+    if (resetState) {
+      setRemoteSpeaking({});
+    }
   }
 
   function closePeerConnection(remoteParticipantId: string) {
@@ -471,7 +495,8 @@ export function RoomShell({ slug }: { slug: string }) {
         roomSlug: slug,
         name: participantName,
         role: participantRole,
-        participantId
+        participantId,
+        accountId: session?.user.id
       });
       socket.emit("chat:history-sync", { roomSlug: slug });
       socket.emit("participant:media", {
@@ -651,6 +676,78 @@ export function RoomShell({ slug }: { slug: string }) {
   }, [localMediaVersion, microphoneEnabled, participantId]);
 
   useEffect(() => {
+    stopRemoteSpeakingMonitors();
+
+    if (!remoteMediaTiles.length) {
+      return;
+    }
+
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+    if (!AudioContextClass) {
+      return;
+    }
+
+    const speakingState: Record<string, boolean> = {};
+
+    for (const tile of remoteMediaTiles) {
+      const audioTrack = tile.stream.getAudioTracks()[0];
+      if (!audioTrack) {
+        speakingState[tile.participantId] = false;
+        continue;
+      }
+
+      const audioContext = new AudioContextClass();
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      const sourceNode = audioContext.createMediaStreamSource(tile.stream);
+      sourceNode.connect(analyser);
+      void audioContext.resume().catch(() => {});
+
+      const samples = new Uint8Array(analyser.fftSize);
+      remoteSpeakingContextsRef.current.set(tile.participantId, audioContext);
+      speakingState[tile.participantId] = false;
+
+      const intervalId = window.setInterval(() => {
+        analyser.getByteTimeDomainData(samples);
+
+        let sumSquares = 0;
+        for (const sample of samples) {
+          const normalized = (sample - 128) / 128;
+          sumSquares += normalized * normalized;
+        }
+
+        const nextSpeaking = Math.sqrt(sumSquares / samples.length) > 0.035;
+        if (speakingState[tile.participantId] === nextSpeaking) {
+          return;
+        }
+
+        speakingState[tile.participantId] = nextSpeaking;
+        setRemoteSpeaking((current) => {
+          if (current[tile.participantId] === nextSpeaking) {
+            return current;
+          }
+
+          return {
+            ...current,
+            [tile.participantId]: nextSpeaking
+          };
+        });
+      }, 180);
+
+      remoteSpeakingIntervalsRef.current.set(tile.participantId, intervalId);
+    }
+
+    setRemoteSpeaking(speakingState);
+
+    return () => {
+      stopRemoteSpeakingMonitors();
+    };
+  }, [remoteMediaTiles]);
+
+  useEffect(() => {
     if (!room) {
       return;
     }
@@ -790,7 +887,12 @@ export function RoomShell({ slug }: { slug: string }) {
 
   function seek(deltaSeconds: number) {
     if (!socketRef.current || !room) return;
-    const nextTime = Math.max(0, Math.min(room.playback.duration || 0, room.playback.currentTime + deltaSeconds));
+    const effectiveCurrentTime =
+      room.playback.state === "playing"
+        ? room.playback.currentTime + Math.max(0, (Date.now() - room.playback.serverTimestamp) / 1000) * (room.playback.playbackRate || 1)
+        : room.playback.currentTime;
+    const unclampedTime = Math.max(0, effectiveCurrentTime + deltaSeconds);
+    const nextTime = room.playback.duration > 0 ? Math.min(room.playback.duration, unclampedTime) : unclampedTime;
     socketRef.current.emit("video:seek", { roomSlug: slug, currentTime: nextTime });
   }
 
@@ -809,7 +911,9 @@ export function RoomShell({ slug }: { slug: string }) {
   async function leaveRoom() {
     setError("");
     stopSpeakingMonitor();
+    stopRemoteSpeakingMonitors();
     clearRoomPresence(slug);
+    const activeParticipantId = participantId;
 
     if (socketRef.current) {
       await new Promise<void>((resolve) => {
@@ -825,6 +929,16 @@ export function RoomShell({ slug }: { slug: string }) {
 
       socketRef.current.disconnect();
       socketRef.current = null;
+    }
+
+    if (activeParticipantId) {
+      await apiFetch<{ ok: boolean }>(`/api/rooms/${slug}/leave`, {
+        method: "POST",
+        token: session?.accessToken,
+        body: JSON.stringify({
+          participantId: activeParticipantId
+        })
+      }).catch(() => {});
     }
 
     for (const connection of peerConnectionsRef.current.values()) {
@@ -907,8 +1021,7 @@ export function RoomShell({ slug }: { slug: string }) {
   }
 
   const localParticipant = room.participants.find((participant) => participant.id === participantId) ?? null;
-  const remoteParticipants = room.participants.filter((participant) => participant.id !== participantId);
-  const displayParticipants = compactParticipants(room.participants);
+  const displayParticipants = compactParticipants(room.participants, localParticipant, remoteSpeaking);
 
   return (
     <div className="mx-auto grid w-full max-w-7xl gap-6 px-5 py-8 lg:grid-cols-[minmax(0,1.45fr)_420px] lg:px-8">
@@ -920,13 +1033,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
         <PlayerFrame playback={room.playback} onTogglePlayback={togglePlayback} onSeek={seek} />
 
-        <MediaStage
-          localName={localParticipant?.name || guestName || "You"}
-          localMicrophoneEnabled={microphoneEnabled}
-          remoteParticipants={remoteParticipants}
-          remoteMediaTiles={remoteMediaTiles}
-          remoteVolumes={remoteVolumes}
-        />
+        <MediaStage remoteMediaTiles={remoteMediaTiles} remoteVolumes={remoteVolumes} />
 
         <section className="grid gap-5 rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div>
@@ -968,7 +1075,7 @@ export function RoomShell({ slug }: { slug: string }) {
               className={`flex items-center justify-center gap-3 rounded-[22px] border px-5 py-4 text-base font-medium ${microphoneEnabled ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/[0.03] text-white"}`}
             >
               <AudioLines className="h-5 w-5" />
-              {microphoneEnabled ? "Voice active" : "Voice room"}
+              {microphoneEnabled ? "Microphone on" : "Enable microphone"}
             </button>
             <button
               type="button"
@@ -1005,7 +1112,13 @@ export function RoomShell({ slug }: { slug: string }) {
 
       <div className="space-y-6">
         <ChatPanel messages={room.messages} onSend={sendChat} disabled={!canInteract} />
-        {panelOpen ? <ParticipantsPanel participants={displayParticipants} localParticipantId={participantId} volumes={remoteVolumes} onVolumeChange={updateRemoteVolume} /> : null}
+        {panelOpen ? (
+          <ParticipantsPanel
+            participants={displayParticipants}
+            volumes={Object.fromEntries(displayParticipants.map((participant) => [participant.id, getGroupVolume(participant, remoteVolumes)]))}
+            onVolumeChange={updateRemoteVolume}
+          />
+        ) : null}
         <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-5">
           <div className="mb-3 flex items-center gap-3 text-white">
             <Link2 className="h-5 w-5 text-signal" />
@@ -1015,7 +1128,7 @@ export function RoomShell({ slug }: { slug: string }) {
             <p>Source: {getSourceLabel(room.playback.sourceType)}</p>
             <p>Realtime: {socketConnected ? "connected" : "fallback sync mode"}</p>
             <p>Microphone: {microphoneEnabled ? "enabled" : "off"}</p>
-            <p>Voice: peer-to-peer via WebRTC</p>
+            <p>Playback: one shared screen with synced play, pause, and seek</p>
             <p>Temporary room session: stays available for a short grace period after everyone leaves</p>
           </div>
         </section>
@@ -1048,17 +1161,52 @@ function normalizeParticipantName(name: string) {
   return name.trim().toLowerCase();
 }
 
-function compactParticipants(participants: Participant[]) {
-  const grouped = new Map<string, Participant>();
+function getParticipantGroupKey(participant: Participant) {
+  if (participant.accountId) {
+    return `account:${participant.accountId}`;
+  }
+
+  const normalizedName = normalizeParticipantName(participant.name);
+  if (normalizedName) {
+    return `name:${normalizedName}`;
+  }
+
+  return `participant:${participant.id}`;
+}
+
+function getGroupVolume(participant: DisplayParticipant, remoteVolumes: Record<string, number>) {
+  for (const memberId of participant.memberIds) {
+    if (typeof remoteVolumes[memberId] === "number") {
+      return remoteVolumes[memberId];
+    }
+  }
+
+  return 1;
+}
+
+function compactParticipants(participants: Participant[], localParticipant: Participant | null, remoteSpeaking: Record<string, boolean>) {
+  const grouped = new Map<string, DisplayParticipant>();
 
   for (const participant of participants) {
-    const key = normalizeParticipantName(participant.name) || participant.id;
+    const key = getParticipantGroupKey(participant);
     const existing = grouped.get(key);
+    const isLocal =
+      participant.id === localParticipant?.id ||
+      Boolean(localParticipant?.accountId && participant.accountId && localParticipant.accountId === participant.accountId);
+    const isSpeaking = Boolean(participant.isSpeaking || remoteSpeaking[participant.id]);
+    const isMuted = Boolean(participant.isMuted ?? true);
 
     if (!existing) {
       grouped.set(key, {
-        ...participant,
-        cameraEnabled: false
+        id: key,
+        name: participant.name,
+        avatar: participant.avatar,
+        role: participant.role,
+        status: isSpeaking ? "listening" : participant.status,
+        isSpeaking,
+        isMuted,
+        isLocal,
+        memberIds: [participant.id]
       });
       continue;
     }
@@ -1066,10 +1214,11 @@ function compactParticipants(participants: Participant[]) {
     grouped.set(key, {
       ...existing,
       role: existing.role === "host" || participant.role === "host" ? "host" : existing.role,
-      status: existing.isSpeaking || participant.isSpeaking ? "listening" : existing.status,
-      isSpeaking: Boolean(existing.isSpeaking || participant.isSpeaking),
-      isMuted: Boolean(existing.isMuted ?? true) && Boolean(participant.isMuted ?? true),
-      cameraEnabled: false
+      status: existing.isSpeaking || isSpeaking ? "listening" : existing.status,
+      isSpeaking: Boolean(existing.isSpeaking || isSpeaking),
+      isMuted: Boolean(existing.isMuted) && isMuted,
+      isLocal: existing.isLocal || isLocal,
+      memberIds: [...existing.memberIds, participant.id]
     });
   }
 

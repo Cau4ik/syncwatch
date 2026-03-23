@@ -23,6 +23,10 @@ const joinRoomSchema = z.object({
   participantId: z.string().min(6).max(64).optional()
 });
 
+const leaveRoomSchema = z.object({
+  participantId: z.string().min(6).max(64)
+});
+
 const roomMessageSchema = z.object({
   text: z.string().min(1).max(500),
   authorName: z.string().min(2).max(24).optional()
@@ -123,6 +127,7 @@ export async function roomRoutes(app: FastifyInstance) {
 
     const room = store.upsertParticipant(params.slug, {
       id: participantId,
+      accountId: user?.id,
       name: participantName,
       role: participantId === currentRoom.hostId ? "host" : user ? "user" : "guest",
       avatar: participantName.charAt(0).toUpperCase(),
@@ -136,6 +141,25 @@ export async function roomRoutes(app: FastifyInstance) {
     return {
       ...room,
       participantId
+    };
+  });
+
+  app.post("/api/rooms/:slug/leave", async (request, reply) => {
+    const params = z.object({ slug: z.string() }).parse(request.params);
+    const body = leaveRoomSchema.parse(request.body ?? {});
+
+    const currentRoom = store.getRoom(params.slug);
+    if (!currentRoom) {
+      return reply.code(404).send({ message: "Room not found" });
+    }
+
+    const removal = store.removeParticipant(params.slug, body.participantId);
+    if (!removal.room) {
+      return reply.code(404).send({ message: "Room not found" });
+    }
+
+    return {
+      ok: true
     };
   });
 

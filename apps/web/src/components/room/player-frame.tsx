@@ -82,16 +82,43 @@ export function PlayerFrame({
   onTogglePlayback?: () => void;
   onSeek?: (deltaSeconds: number) => void;
 }) {
-  const progress = playback.duration > 0 ? Math.min(100, (playback.currentTime / playback.duration) * 100) : 0;
   const youtubeHostRef = useRef<HTMLDivElement | null>(null);
   const youtubePlayerRef = useRef<ReturnType<typeof createNullPlayer> | null>(null);
   const htmlVideoRef = useRef<HTMLVideoElement | null>(null);
   const [ready, setReady] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+
+  const effectiveCurrentTime = useMemo(() => {
+    if (playback.state !== "playing") {
+      return playback.currentTime;
+    }
+
+    const elapsedSeconds = Math.max(0, (now - playback.serverTimestamp) / 1000) * (playback.playbackRate || 1);
+    const nextTime = playback.currentTime + elapsedSeconds;
+    return playback.duration > 0 ? Math.min(nextTime, playback.duration) : nextTime;
+  }, [now, playback.currentTime, playback.duration, playback.playbackRate, playback.serverTimestamp, playback.state]);
+
+  const progress = playback.duration > 0 ? Math.min(100, (effectiveCurrentTime / playback.duration) * 100) : 0;
 
   const canSyncControls = useMemo(
     () => playback.sourceType === "youtube" || playback.sourceType === "upload" || playback.sourceType === "hls",
     [playback.sourceType]
   );
+
+  useEffect(() => {
+    if (playback.state !== "playing") {
+      setNow(Date.now());
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setNow(Date.now());
+    }, 250);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [playback.state, playback.serverTimestamp]);
 
   useEffect(() => {
     if (playback.sourceType !== "youtube" || !youtubeHostRef.current) {
@@ -111,8 +138,14 @@ export function PlayerFrame({
       youtubePlayerRef.current = new window.YT.Player(youtubeHostRef.current, {
         videoId: playback.sourceRef,
         playerVars: {
+          autoplay: 0,
+          controls: 0,
+          disablekb: 1,
+          fs: 0,
+          iv_load_policy: 3,
           rel: 0,
-          modestbranding: 1
+          modestbranding: 1,
+          playsinline: 1
         },
         events: {
           onReady: () => {
@@ -135,8 +168,8 @@ export function PlayerFrame({
     const player = youtubePlayerRef.current;
     const currentTime = player.getCurrentTime?.() ?? 0;
 
-    if (Math.abs(currentTime - playback.currentTime) > 1.25) {
-      player.seekTo(playback.currentTime, true);
+    if (Math.abs(currentTime - effectiveCurrentTime) > 1.25) {
+      player.seekTo(effectiveCurrentTime, true);
     }
 
     if (playback.state === "playing" && player.getPlayerState?.() !== 1) {
@@ -146,7 +179,7 @@ export function PlayerFrame({
     if (playback.state === "paused" && player.getPlayerState?.() !== 2) {
       player.pauseVideo();
     }
-  }, [playback, ready]);
+  }, [effectiveCurrentTime, playback, ready]);
 
   useEffect(() => {
     if ((playback.sourceType !== "upload" && playback.sourceType !== "hls") || !htmlVideoRef.current) {
@@ -155,8 +188,8 @@ export function PlayerFrame({
 
     const video = htmlVideoRef.current;
 
-    if (Math.abs(video.currentTime - playback.currentTime) > 1.25) {
-      video.currentTime = playback.currentTime;
+    if (Math.abs(video.currentTime - effectiveCurrentTime) > 1.25) {
+      video.currentTime = effectiveCurrentTime;
     }
 
     if (playback.state === "playing") {
@@ -164,7 +197,7 @@ export function PlayerFrame({
     } else if (playback.state === "paused") {
       video.pause();
     }
-  }, [playback]);
+  }, [effectiveCurrentTime, playback]);
 
   return (
     <div className="rounded-[32px] border border-white/8 bg-[#050b14]/90 p-4 shadow-glow">
@@ -236,7 +269,7 @@ export function PlayerFrame({
               <RotateCw className="h-5 w-5" />
             </button>
             <div className="text-sm text-white/85">
-              {formatTime(playback.currentTime)} <span className="text-mist">/ {formatTime(playback.duration || 0)}</span>
+              {formatTime(effectiveCurrentTime)} <span className="text-mist">/ {formatTime(playback.duration || 0)}</span>
             </div>
           </div>
 

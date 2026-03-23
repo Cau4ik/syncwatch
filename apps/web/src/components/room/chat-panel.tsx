@@ -72,7 +72,10 @@ export function ChatPanel({
           className="flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.03] p-2"
           onSubmit={async (event) => {
             event.preventDefault();
-            if (!text.trim()) return;
+            if (!text.trim()) {
+              return;
+            }
+
             try {
               await onSend(text);
               setText("");
@@ -96,7 +99,7 @@ export function ChatPanel({
           <button
             type="submit"
             disabled={disabled}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-[#ffe1af] via-[#ffb67d] to-[#ff6d6d] text-slate-950"
+            className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-[#ffe1af] via-[#ffb67d] to-[#ff6d6d] text-slate-950 disabled:opacity-50"
           >
             <SendHorizonal className="h-4 w-4" />
           </button>
