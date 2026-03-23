@@ -71,7 +71,7 @@ function StreamCard({
   stream,
   cameraEnabled,
   microphoneEnabled,
-  muted,
+  muted = false,
   speaking = false,
   videoRef
 }: {
@@ -80,7 +80,7 @@ function StreamCard({
   stream: MediaStream | null;
   cameraEnabled: boolean;
   microphoneEnabled: boolean;
-  muted: boolean;
+  muted?: boolean;
   speaking?: boolean;
   videoRef?: RefObject<HTMLVideoElement | null>;
 }) {
