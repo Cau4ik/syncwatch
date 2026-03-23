@@ -1,0 +1,57 @@
+Сделай production-style monorepo fullstack веб-приложение для совместного просмотра видео с друзьями, вдохновленное механикой watch-party сервиса наподобие Rave, но без копирования бренда, логотипов и интерфейса 1 в 1.
+
+Цель:
+Создать browser-based watch party platform для разрешенных видеоисточников.
+
+Обязательный scope MVP:
+1. Frontend: Next.js + TypeScript + Tailwind + shadcn/ui.
+2. Backend: NestJS или Fastify-based API на TypeScript.
+3. DB: PostgreSQL + Prisma.
+4. Realtime: Socket.IO для rooms, chat и playback sync.
+5. Voice: WebRTC audio с signaling через Socket.IO. Если для production качества нужен отдельный voice layer, подготовь архитектуру под LiveKit или SFU, но оставь рабочий MVP.
+6. Auth: email/password, Google OAuth, JWT access token, refresh token.
+7. Guest join: вход в комнату по ссылке с display name без обязательной регистрации.
+8. Rooms: create, join by link, public/unlisted/private, password optional, host transfer, kick user.
+9. Video sources MVP: YouTube link через iframe API, uploaded mp4/webm, HLS .m3u8 по валидному URL.
+10. Sync: load video, play, pause, seek, late join snapshot, periodic drift correction, reconnect resync.
+11. Room page: video player, participants list, text chat, voice section, invite link, sync status, host controls.
+12. Chat: realtime messages, system messages, delete by moderator/host, basic rate limit.
+13. Profile: username, avatar, bio, uploads, watch history.
+14. Moderation MVP: report user/message/room, ban/mute/kick primitives, admin area skeleton.
+15. Security: input validation, XSS protection, Argon2 or bcrypt, secure refresh cookie, rate limit, upload validation.
+16. Uploads: S3-compatible storage integration, metadata extraction, size and mime validation.
+17. Architecture: clear separation between player adapters, room sync service, socket layer, auth layer.
+18. Required deliverables: full project structure, Prisma schema, backend modules, socket handlers, frontend pages, reusable UI components, player adapters, Docker Compose, .env.example, README, seed data, basic tests.
+19. Add legal placeholder pages for Terms and Privacy with clear wording that only lawful/authorized content is allowed.
+20. Do not implement Netflix/Disney/Prime integrations, do not promise copyrighted third-party streams, do not implement video downloading/recording.
+
+Качество реализации:
+- clean architecture;
+- strongly typed DTOs and events;
+- Zod or equivalent validation;
+- production-style folder structure;
+- reusable components;
+- responsive room layout;
+- SSR/CSR split where appropriate;
+- realistic loading, empty, error and reconnect states.
+
+Room sync requirements:
+- server is source of truth;
+- keep canonical playback state in backend;
+- on join return room snapshot;
+- if playing, client calculates expected time using server timestamp;
+- soft resync every 3-5 seconds;
+- hard seek when drift is too large;
+- protect host-only actions on backend.
+
+UI direction:
+- cinematic dark streaming UI;
+- desktop-first;
+- mobile-friendly;
+- clean and modern, but not copying Rave visually.
+
+Also generate:
+- README with local setup and run instructions;
+- docker-compose for web, api, postgres, redis;
+- Prisma migrations;
+- sample seed with demo room, demo users and demo messages.

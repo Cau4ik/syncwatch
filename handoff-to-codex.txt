@@ -1,0 +1,33 @@
+Используй этот порядок работы.
+
+Шаг 1. Сначала прочитай и выполни стартовый MVP-промпт из файла:
+`c:\Users\saito\OneDrive\Desktop\для друзей\codex-prompt-watch-party-mvp.txt`
+
+Шаг 2. Затем используй файл ниже как reference/spec и сверяй архитектуру, scope и ограничения с ним:
+`c:\Users\saito\OneDrive\Desktop\для друзей\watch-party-rave-diagnosis-and-spec.md`
+
+Шаг 3. Делай только MVP как первый этап. Не пытайся сразу реализовать "весь Rave целиком".
+
+Правила выполнения:
+- сначала собери production-style monorepo;
+- реализуй только MVP-обязательные функции;
+- не добавляй Netflix/Disney/Prime интеграции;
+- не копируй бренд, тексты и дизайн Rave 1 в 1;
+- соблюдай lawful-content ограничения из spec;
+- сначала доведи auth, rooms, sync, chat, voice и room UI;
+- только после этого оставь расширения для v1 как follow-up.
+
+Ожидаемый результат на первом этапе:
+- рабочий fullstack MVP;
+- Next.js frontend;
+- TypeScript backend API;
+- PostgreSQL + Prisma;
+- Socket.IO sync;
+- WebRTC voice MVP;
+- Docker Compose;
+- README;
+- .env.example;
+- seed data;
+- базовые тесты.
+
+Если scope слишком большой, разбей реализацию на фазы, но сначала полностью закрой MVP.

@@ -1,0 +1,207 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum RoomVisibility {
+  PUBLIC
+  UNLISTED
+  PRIVATE
+}
+
+enum RoomRole {
+  HOST
+  MODERATOR
+  USER
+  GUEST
+}
+
+enum PlaybackState {
+  IDLE
+  PLAYING
+  PAUSED
+}
+
+enum SourceType {
+  YOUTUBE
+  UPLOAD
+  HLS
+  INTERNAL
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+model User {
+  id                 String             @id @default(cuid())
+  email              String             @unique
+  username           String             @unique
+  passwordHash       String
+  avatarUrl          String?
+  bio                String?
+  authProvider       String             @default("email")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  lastSeenAt         DateTime?
+  ownedRooms         Room[]             @relation("RoomOwner")
+  roomMemberships    RoomMember[]
+  messages           Message[]
+  uploadedVideos     UploadedVideo[]
+  watchHistory       WatchHistory[]
+  outgoingFriendship Friendship[]       @relation("FriendRequester")
+  incomingFriendship Friendship[]       @relation("FriendAddressee")
+  sentInvites        Invite[]           @relation("InviteSender")
+  receivedInvites    Invite[]           @relation("InviteReceiver")
+  sessions           Session[]
+  reportsFiled       Report[]           @relation("ReportsFiled")
+  moderationActions  ModerationAction[] @relation("ActionActor")
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  refreshTokenHash String
+  ip               String?
+  userAgent        String?
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Room {
+  id               String          @id @default(cuid())
+  slug             String          @unique
+  title            String
+  ownerId          String
+  visibility       RoomVisibility  @default(UNLISTED)
+  passwordHash     String?
+  maxParticipants  Int             @default(12)
+  sourceType       SourceType?
+  sourceRef        String?
+  playbackState    PlaybackState   @default(IDLE)
+  currentTime      Float           @default(0)
+  playbackRate     Float           @default(1)
+  serverTimestamp  DateTime        @default(now())
+  isArchived       Boolean         @default(false)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  owner            User            @relation("RoomOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  members          RoomMember[]
+  messages         Message[]
+  invites          Invite[]
+  watchHistory     WatchHistory[]
+  reports          Report[]
+  moderationEvents ModerationAction[]
+}
+
+model RoomMember {
+  id        String    @id @default(cuid())
+  roomId    String
+  userId    String?
+  guestName String?
+  role      RoomRole  @default(USER)
+  joinedAt  DateTime  @default(now())
+  leftAt    DateTime?
+  room      Room      @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String?
+  guestName String?
+  type      String   @default("user")
+  text      String
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+model UploadedVideo {
+  id              String   @id @default(cuid())
+  ownerId         String
+  title           String
+  storageKey      String
+  publicUrl       String
+  previewUrl      String?
+  durationSeconds Float?
+  mimeType        String
+  sizeBytes       BigInt
+  createdAt       DateTime @default(now())
+  owner           User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+}
+
+model Friendship {
+  id          String           @id @default(cuid())
+  requesterId String
+  addresseeId String
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  requester   User             @relation("FriendRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee   User             @relation("FriendAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+}
+
+model Invite {
+  id         String   @id @default(cuid())
+  roomId     String
+  senderId   String
+  receiverId String
+  status     String   @default("pending")
+  createdAt  DateTime @default(now())
+  room       Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  sender     User     @relation("InviteSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User     @relation("InviteReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+}
+
+model WatchHistory {
+  id         String     @id @default(cuid())
+  userId     String
+  roomId     String?
+  sourceType SourceType
+  sourceRef  String
+  watchedAt  DateTime   @default(now())
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  room       Room?      @relation(fields: [roomId], references: [id], onDelete: SetNull)
+}
+
+model Report {
+  id              String       @id @default(cuid())
+  reporterId      String
+  targetUserId    String?
+  targetRoomId    String?
+  targetMessageId String?
+  reason          String
+  status          ReportStatus @default(OPEN)
+  createdAt       DateTime     @default(now())
+  reporter        User         @relation("ReportsFiled", fields: [reporterId], references: [id], onDelete: Cascade)
+  room            Room?        @relation(fields: [targetRoomId], references: [id], onDelete: SetNull)
+}
+
+model ModerationAction {
+  id           String   @id @default(cuid())
+  actorUserId  String
+  targetUserId String?
+  roomId       String?
+  actionType   String
+  reason       String?
+  createdAt    DateTime @default(now())
+  actor        User     @relation("ActionActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  room         Room?    @relation(fields: [roomId], references: [id], onDelete: SetNull)
+}
+

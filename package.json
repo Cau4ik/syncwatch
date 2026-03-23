@@ -1,0 +1,24 @@
+{
+  "name": "syncwatch",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev": "corepack pnpm -r --parallel dev",
+    "dev:web": "corepack pnpm --filter @syncwatch/web dev",
+    "dev:api": "corepack pnpm --filter @syncwatch/api dev",
+    "build": "corepack pnpm -r build",
+    "start:web": "corepack pnpm --filter @syncwatch/web start",
+    "start:api": "corepack pnpm --filter @syncwatch/api start",
+    "lint": "corepack pnpm -r lint",
+    "test": "corepack pnpm -r test",
+    "prisma:generate": "prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "prisma migrate dev --schema prisma/schema.prisma",
+    "prisma:seed": "tsx prisma/seed.ts"
+  },
+  "devDependencies": {
+    "prisma": "^6.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}
