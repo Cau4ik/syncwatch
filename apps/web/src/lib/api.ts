@@ -19,13 +19,12 @@ export async function apiFetch<T>(
 
   if (!response.ok) {
     const fallback = `Request failed: ${response.status}`;
+    const data = await response
+      .clone()
+      .json()
+      .catch(() => null as { message?: string } | null);
 
-    try {
-      const data = (await response.clone().json()) as { message?: string };
-      throw new Error(data.message || fallback);
-    } catch {
-      throw new Error(fallback);
-    }
+    throw new Error(data?.message || fallback);
   }
 
   if (response.status === 204) {
