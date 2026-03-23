@@ -2,12 +2,10 @@
 
 import {
   AudioLines,
-  Camera,
-  CameraOff,
   Copy,
   ExternalLink,
-  Heart,
   Link2,
+  LogOut,
   Mic,
   MicOff,
   PanelRight,
@@ -17,6 +15,7 @@ import {
 } from "lucide-react";
 import type { ChatMessage, Participant, RoomState } from "@syncwatch/shared";
 import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { io, type Socket } from "socket.io-client";
 
 import { ChatPanel } from "@/components/room/chat-panel";
@@ -43,6 +42,7 @@ const rtcConfiguration: RTCConfiguration = {
 };
 
 export function RoomShell({ slug }: { slug: string }) {
+  const router = useRouter();
   const [room, setRoom] = useState<RoomState | null>(null);
   const [session, setSession] = useState<SessionState | null>(null);
   const [guestName, setGuestName] = useState("");
@@ -52,22 +52,23 @@ export function RoomShell({ slug }: { slug: string }) {
   const [error, setError] = useState("");
   const [socketConnected, setSocketConnected] = useState(false);
   const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
-  const [cameraEnabled, setCameraEnabled] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [remoteMediaTiles, setRemoteMediaTiles] = useState<RemoteMediaTile[]>([]);
+  const [remoteVolumes, setRemoteVolumes] = useState<Record<string, number>>({});
   const [localMediaVersion, setLocalMediaVersion] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const autoJoinRef = useRef(false);
   const localMediaStreamRef = useRef<MediaStream | null>(null);
-  const localPreviewRef = useRef<HTMLVideoElement | null>(null);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
   const negotiationLocksRef = useRef<Set<string>>(new Set());
   const microphoneEnabledRef = useRef(false);
-  const cameraEnabledRef = useRef(false);
   const mediaTouchedRef = useRef(false);
+  const localSpeakingRef = useRef(false);
+  const speakingMonitorRef = useRef<number | null>(null);
+  const speakingAudioContextRef = useRef<AudioContext | null>(null);
 
   useEffect(() => {
     const syncSession = () => setSession(loadSession());
@@ -80,10 +81,6 @@ export function RoomShell({ slug }: { slug: string }) {
   }, [microphoneEnabled]);
 
   useEffect(() => {
-    cameraEnabledRef.current = cameraEnabled;
-  }, [cameraEnabled]);
-
-  useEffect(() => {
     return () => {
       socketRef.current?.disconnect();
       for (const connection of peerConnectionsRef.current.values()) {
@@ -94,6 +91,12 @@ export function RoomShell({ slug }: { slug: string }) {
       pendingIceCandidatesRef.current.clear();
       localMediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       localMediaStreamRef.current = null;
+      if (speakingMonitorRef.current !== null) {
+        window.clearInterval(speakingMonitorRef.current);
+      }
+      speakingMonitorRef.current = null;
+      void speakingAudioContextRef.current?.close().catch(() => {});
+      speakingAudioContextRef.current = null;
     };
   }, []);
 
@@ -164,14 +167,7 @@ export function RoomShell({ slug }: { slug: string }) {
     }
 
     setMicrophoneEnabled(!(me.isMuted ?? true));
-    setCameraEnabled(Boolean(me.cameraEnabled));
   }, [participantId, room]);
-
-  useEffect(() => {
-    if (localPreviewRef.current) {
-      localPreviewRef.current.srcObject = localMediaStreamRef.current;
-    }
-  }, [localMediaVersion]);
 
   function refreshRemoteTiles() {
     setRemoteMediaTiles(
@@ -180,6 +176,42 @@ export function RoomShell({ slug }: { slug: string }) {
         stream
       }))
     );
+  }
+
+  function updateRemoteVolume(remoteParticipantId: string, volume: number) {
+    const targetParticipant = room?.participants.find((participant) => participant.id === remoteParticipantId);
+    const targetKey = normalizeParticipantName(targetParticipant?.name || "");
+
+    setRemoteVolumes((current) => {
+      const next = { ...current };
+
+      for (const participant of room?.participants ?? []) {
+        if (participant.id !== participantId && normalizeParticipantName(participant.name) === targetKey) {
+          next[participant.id] = volume;
+        }
+      }
+
+      if (!targetKey) {
+        next[remoteParticipantId] = volume;
+      }
+
+      return next;
+    });
+  }
+
+  function stopSpeakingMonitor() {
+    if (speakingMonitorRef.current !== null) {
+      window.clearInterval(speakingMonitorRef.current);
+      speakingMonitorRef.current = null;
+    }
+
+    if (localSpeakingRef.current) {
+      localSpeakingRef.current = false;
+      emitParticipantMediaPatch({ isSpeaking: false, status: microphoneEnabledRef.current ? "listening" : "online" });
+    }
+
+    void speakingAudioContextRef.current?.close().catch(() => {});
+    speakingAudioContextRef.current = null;
   }
 
   function closePeerConnection(remoteParticipantId: string) {
@@ -446,7 +478,7 @@ export function RoomShell({ slug }: { slug: string }) {
         roomSlug: slug,
         patch: {
           isMuted: !microphoneEnabledRef.current,
-          cameraEnabled: cameraEnabledRef.current,
+          cameraEnabled: false,
           status: microphoneEnabledRef.current ? "listening" : "online"
         }
       });
@@ -516,13 +548,28 @@ export function RoomShell({ slug }: { slug: string }) {
       roomSlug: slug,
       patch: {
         isMuted: !microphoneEnabled,
-        cameraEnabled,
+        cameraEnabled: false,
         status: microphoneEnabled ? "listening" : "online"
       }
     });
-  }, [cameraEnabled, microphoneEnabled, participantId, slug, socketConnected]);
+  }, [microphoneEnabled, participantId, slug, socketConnected]);
 
   const participantIdsKey = room?.participants.map((participant) => participant.id).sort().join("|") ?? "";
+
+  useEffect(() => {
+    if (!room || !participantId) {
+      return;
+    }
+
+    const remoteParticipantIds = room.participants.filter((participant) => participant.id !== participantId).map((participant) => participant.id);
+    setRemoteVolumes((current) => {
+      const next: Record<string, number> = {};
+      for (const remoteParticipantId of remoteParticipantIds) {
+        next[remoteParticipantId] = current[remoteParticipantId] ?? 1;
+      }
+      return next;
+    });
+  }, [participantId, participantIdsKey, room]);
 
   useEffect(() => {
     if (!room || !participantId || !socketConnected) {
@@ -551,6 +598,57 @@ export function RoomShell({ slug }: { slug: string }) {
 
     renegotiateAllPeers();
   }, [localMediaVersion, participantId, participantIdsKey, socketConnected]);
+
+  useEffect(() => {
+    const localStream = localMediaStreamRef.current;
+    const audioTrack = localStream?.getAudioTracks()[0];
+
+    if (!participantId || !microphoneEnabled || !audioTrack?.enabled || !localStream) {
+      stopSpeakingMonitor();
+      return;
+    }
+
+    const AudioContextClass =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+
+    if (!AudioContextClass) {
+      return;
+    }
+
+    const audioContext = new AudioContextClass();
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 2048;
+    const sourceNode = audioContext.createMediaStreamSource(localStream);
+    sourceNode.connect(analyser);
+    const samples = new Uint8Array(analyser.fftSize);
+    speakingAudioContextRef.current = audioContext;
+
+    speakingMonitorRef.current = window.setInterval(() => {
+      analyser.getByteTimeDomainData(samples);
+
+      let sumSquares = 0;
+      for (const sample of samples) {
+        const normalized = (sample - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+
+      const rms = Math.sqrt(sumSquares / samples.length);
+      const nextSpeaking = microphoneEnabledRef.current && rms > 0.05;
+
+      if (nextSpeaking !== localSpeakingRef.current) {
+        localSpeakingRef.current = nextSpeaking;
+        emitParticipantMediaPatch({
+          isSpeaking: nextSpeaking,
+          status: microphoneEnabledRef.current ? "listening" : "online"
+        });
+      }
+    }, 180);
+
+    return () => {
+      stopSpeakingMonitor();
+    };
+  }, [localMediaVersion, microphoneEnabled, participantId]);
 
   useEffect(() => {
     if (!room) {
@@ -708,6 +806,44 @@ export function RoomShell({ slug }: { slug: string }) {
     }
   }
 
+  async function leaveRoom() {
+    setError("");
+    stopSpeakingMonitor();
+    clearRoomPresence(slug);
+
+    if (socketRef.current) {
+      await new Promise<void>((resolve) => {
+        const activeSocket = socketRef.current;
+        if (!activeSocket) {
+          resolve();
+          return;
+        }
+
+        activeSocket.emit("room:leave", { roomSlug: slug }, () => resolve());
+        window.setTimeout(resolve, 300);
+      });
+
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+
+    for (const connection of peerConnectionsRef.current.values()) {
+      connection.close();
+    }
+    peerConnectionsRef.current.clear();
+    remoteStreamsRef.current.clear();
+    pendingIceCandidatesRef.current.clear();
+    setRemoteMediaTiles([]);
+
+    localMediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    localMediaStreamRef.current = null;
+    setMicrophoneEnabled(false);
+    setParticipantId("");
+    setSocketConnected(false);
+
+    router.push(session ? "/dashboard" : "/");
+  }
+
   async function ensureLocalMedia(options: { audio?: boolean; video?: boolean }) {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       throw new Error("Media devices are not available in this browser.");
@@ -728,10 +864,6 @@ export function RoomShell({ slug }: { slug: string }) {
       for (const track of freshStream.getTracks()) {
         localStream.addTrack(track);
       }
-    }
-
-    if (localPreviewRef.current) {
-      localPreviewRef.current.srcObject = localStream;
     }
 
     for (const connection of peerConnectionsRef.current.values()) {
@@ -762,35 +894,6 @@ export function RoomShell({ slug }: { slug: string }) {
     }
   }
 
-  async function toggleCamera() {
-    try {
-      mediaTouchedRef.current = true;
-      const localStream = await ensureLocalMedia({ video: true });
-      const videoTrack = localStream.getVideoTracks()[0];
-      if (!videoTrack) {
-        setError("Camera track is unavailable.");
-        return;
-      }
-
-      const nextEnabled = !(videoTrack.enabled && cameraEnabled);
-      videoTrack.enabled = nextEnabled;
-      setCameraEnabled(nextEnabled);
-      emitParticipantMediaPatch({ cameraEnabled: nextEnabled });
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Camera permission was blocked.");
-    }
-  }
-
-  async function sendReaction() {
-    try {
-      await sendChat("🔥");
-      setError("");
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to send reaction.");
-    }
-  }
-
   if (loading) {
     return <RoomStateCard title="Loading room..." description="Fetching room state, source, and participant list." />;
   }
@@ -805,6 +908,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
   const localParticipant = room.participants.find((participant) => participant.id === participantId) ?? null;
   const remoteParticipants = room.participants.filter((participant) => participant.id !== participantId);
+  const displayParticipants = compactParticipants(room.participants);
 
   return (
     <div className="mx-auto grid w-full max-w-7xl gap-6 px-5 py-8 lg:grid-cols-[minmax(0,1.45fr)_420px] lg:px-8">
@@ -818,12 +922,10 @@ export function RoomShell({ slug }: { slug: string }) {
 
         <MediaStage
           localName={localParticipant?.name || guestName || "You"}
-          localStream={localMediaStreamRef.current}
-          localPreviewRef={localPreviewRef}
-          localCameraEnabled={cameraEnabled}
           localMicrophoneEnabled={microphoneEnabled}
           remoteParticipants={remoteParticipants}
           remoteMediaTiles={remoteMediaTiles}
+          remoteVolumes={remoteVolumes}
         />
 
         <section className="grid gap-5 rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
@@ -834,7 +936,7 @@ export function RoomShell({ slug }: { slug: string }) {
               <span className="h-1 w-1 rounded-full bg-white/20" />
               <span>{room.category}</span>
               <span className="h-1 w-1 rounded-full bg-white/20" />
-              <span>{room.participants.length} participants</span>
+              <span>{displayParticipants.length} participants</span>
             </div>
 
             <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5">
@@ -882,8 +984,8 @@ export function RoomShell({ slug }: { slug: string }) {
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <ActionPill icon={<UsersRound className="h-5 w-5" />} label={copiedInvite ? "Copied" : "Invite"} onClick={copyInviteLink} active={copiedInvite} />
           <ActionPill icon={microphoneEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />} label={microphoneEnabled ? "Mic on" : "Microphone"} onClick={() => void toggleMicrophone()} active={microphoneEnabled} />
-          <ActionPill icon={cameraEnabled ? <Camera className="h-5 w-5" /> : <CameraOff className="h-5 w-5" />} label={cameraEnabled ? "Camera on" : "Camera"} onClick={() => void toggleCamera()} active={cameraEnabled} />
-          <ActionPill icon={<Heart className="h-5 w-5" />} label="Reaction" onClick={() => void sendReaction()} />
+          <ActionPill icon={<PanelRight className="h-5 w-5" />} label={panelOpen ? "Hide panels" : "Show panels"} onClick={() => setPanelOpen((current) => !current)} active={panelOpen} />
+          <ActionPill icon={<LogOut className="h-5 w-5" />} label="Leave room" onClick={() => void leaveRoom()} />
         </section>
 
         {!canInteract ? (
@@ -903,7 +1005,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
       <div className="space-y-6">
         <ChatPanel messages={room.messages} onSend={sendChat} disabled={!canInteract} />
-        {panelOpen ? <ParticipantsPanel participants={room.participants} /> : null}
+        {panelOpen ? <ParticipantsPanel participants={displayParticipants} localParticipantId={participantId} volumes={remoteVolumes} onVolumeChange={updateRemoteVolume} /> : null}
         <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-5">
           <div className="mb-3 flex items-center gap-3 text-white">
             <Link2 className="h-5 w-5 text-signal" />
@@ -913,8 +1015,7 @@ export function RoomShell({ slug }: { slug: string }) {
             <p>Source: {getSourceLabel(room.playback.sourceType)}</p>
             <p>Realtime: {socketConnected ? "connected" : "fallback sync mode"}</p>
             <p>Microphone: {microphoneEnabled ? "enabled" : "off"}</p>
-            <p>Camera: {cameraEnabled ? "enabled" : "off"}</p>
-            <p>Voice/video: peer-to-peer via WebRTC</p>
+            <p>Voice: peer-to-peer via WebRTC</p>
             <p>Temporary room session: stays available for a short grace period after everyone leaves</p>
           </div>
         </section>
@@ -941,6 +1042,38 @@ function ActionPill({
       {label}
     </button>
   );
+}
+
+function normalizeParticipantName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+function compactParticipants(participants: Participant[]) {
+  const grouped = new Map<string, Participant>();
+
+  for (const participant of participants) {
+    const key = normalizeParticipantName(participant.name) || participant.id;
+    const existing = grouped.get(key);
+
+    if (!existing) {
+      grouped.set(key, {
+        ...participant,
+        cameraEnabled: false
+      });
+      continue;
+    }
+
+    grouped.set(key, {
+      ...existing,
+      role: existing.role === "host" || participant.role === "host" ? "host" : existing.role,
+      status: existing.isSpeaking || participant.isSpeaking ? "listening" : existing.status,
+      isSpeaking: Boolean(existing.isSpeaking || participant.isSpeaking),
+      isMuted: Boolean(existing.isMuted ?? true) && Boolean(participant.isMuted ?? true),
+      cameraEnabled: false
+    });
+  }
+
+  return [...grouped.values()];
 }
 
 function RoomStateCard({ title, description }: { title: string; description: string }) {

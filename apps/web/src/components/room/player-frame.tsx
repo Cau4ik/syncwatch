@@ -1,6 +1,6 @@
 "use client";
 
-import { ExternalLink, Maximize2, MonitorPlay, Pause, Play, RotateCcw, RotateCw, Volume2 } from "lucide-react";
+import { ExternalLink, Pause, Play, RotateCcw, RotateCw } from "lucide-react";
 import type { PlaybackSnapshot } from "@syncwatch/shared";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -235,9 +235,6 @@ export function PlayerFrame({
             >
               <RotateCw className="h-5 w-5" />
             </button>
-            <button className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5">
-              <Volume2 className="h-5 w-5" />
-            </button>
             <div className="text-sm text-white/85">
               {formatTime(playback.currentTime)} <span className="text-mist">/ {formatTime(playback.duration || 0)}</span>
             </div>
@@ -247,12 +244,6 @@ export function PlayerFrame({
             <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-emerald-200">
               {canSyncControls ? "Sync controls ready" : "Provider embed mode"}
             </div>
-            <button className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5">
-              <MonitorPlay className="h-5 w-5" />
-            </button>
-            <button className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5">
-              <Maximize2 className="h-5 w-5" />
-            </button>
           </div>
         </div>
       </div>

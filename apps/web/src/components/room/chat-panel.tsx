@@ -4,6 +4,8 @@ import { SendHorizonal, Smile } from "lucide-react";
 import type { ChatMessage } from "@syncwatch/shared";
 import { useState } from "react";
 
+const EMOJIS = ["😀", "😂", "😍", "🔥", "👏", "😮", "😭", "👍"];
+
 export function ChatPanel({
   messages,
   onSend,
@@ -14,6 +16,7 @@ export function ChatPanel({
   disabled?: boolean;
 }) {
   const [text, setText] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
     <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90">
@@ -48,6 +51,23 @@ export function ChatPanel({
       </div>
 
       <div className="border-t border-white/8 px-5 py-4">
+        {pickerOpen ? (
+          <div className="mb-3 flex flex-wrap gap-2">
+            {EMOJIS.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                onClick={() => {
+                  setText((current) => `${current}${emoji}`);
+                  setPickerOpen(false);
+                }}
+                className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-2 text-lg"
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <form
           className="flex items-center gap-3 rounded-full border border-white/10 bg-white/[0.03] p-2"
           onSubmit={async (event) => {
@@ -59,7 +79,11 @@ export function ChatPanel({
             } catch {}
           }}
         >
-          <button type="button" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-mist">
+          <button
+            type="button"
+            onClick={() => setPickerOpen((current) => !current)}
+            className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-mist"
+          >
             <Smile className="h-5 w-5" />
           </button>
           <input
