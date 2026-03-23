@@ -35,7 +35,7 @@ function toRoomState(room: StoredRoom): RoomState {
   return {
     ...state,
     playback: { ...state.playback },
-    participants: [...state.participants],
+    participants: state.participants.map((participant) => ({ ...participant })),
     messages: [...state.messages]
   };
 }
@@ -271,5 +271,17 @@ export const store = {
     return {
       ...currentRoom.playback
     };
+  },
+
+  updateParticipant(slug: string, participantId: string, patch: Partial<Participant>) {
+    purgeExpiredRooms();
+    const currentRoom = rooms.get(slug);
+    if (!currentRoom) return null;
+
+    const participant = currentRoom.participants.find((item) => item.id === participantId);
+    if (!participant) return null;
+
+    Object.assign(participant, patch);
+    return toRoomState(currentRoom);
   }
 };

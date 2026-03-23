@@ -11,6 +11,7 @@ export interface Participant {
   status: "online" | "typing" | "listening" | "away";
   isSpeaking?: boolean;
   isMuted?: boolean;
+  cameraEnabled?: boolean;
 }
 
 export interface ChatMessage {

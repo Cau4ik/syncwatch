@@ -18,8 +18,8 @@ export function ChatPanel({
   return (
     <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90">
       <div className="border-b border-white/8 px-5 py-4">
-        <div className="text-xl font-semibold text-white">Чат</div>
-        <div className="text-sm text-mist">Системные события и живое обсуждение в одной ленте.</div>
+        <div className="text-xl font-semibold text-white">Chat</div>
+        <div className="text-sm text-mist">System events and live discussion in one room feed.</div>
       </div>
 
       <div className="max-h-[470px] space-y-4 overflow-y-auto px-5 py-5">
@@ -53,8 +53,10 @@ export function ChatPanel({
           onSubmit={async (event) => {
             event.preventDefault();
             if (!text.trim()) return;
-            await onSend(text);
-            setText("");
+            try {
+              await onSend(text);
+              setText("");
+            } catch {}
           }}
         >
           <button type="button" className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5 text-mist">
@@ -63,7 +65,7 @@ export function ChatPanel({
           <input
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder="Написать сообщение..."
+            placeholder="Write a message..."
             disabled={disabled}
             className="h-11 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-mist"
           />

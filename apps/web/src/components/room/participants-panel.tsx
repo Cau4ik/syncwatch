@@ -1,12 +1,12 @@
-import { Crown, Mic, MicOff, MoreHorizontal } from "lucide-react";
+import { Camera, CameraOff, Crown, Mic, MicOff, MoreHorizontal } from "lucide-react";
 import type { Participant } from "@syncwatch/shared";
 
 export function ParticipantsPanel({ participants }: { participants: Participant[] }) {
   return (
     <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90">
       <div className="border-b border-white/8 px-5 py-4">
-        <div className="text-xl font-semibold text-white">Участники ({participants.length})</div>
-        <div className="text-sm text-mist">Голос, роли и presence внутри комнаты.</div>
+        <div className="text-xl font-semibold text-white">Participants ({participants.length})</div>
+        <div className="text-sm text-mist">Voice, camera, roles, and room presence.</div>
       </div>
 
       <div className="space-y-3 px-5 py-5">
@@ -45,7 +45,14 @@ export function ParticipantsPanel({ participants }: { participants: Participant[
               >
                 {participant.isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
               </div>
-              <button className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-mist">
+              <div
+                className={`flex h-9 w-9 items-center justify-center rounded-full ${
+                  participant.cameraEnabled ? "bg-emerald-400/10 text-emerald-200" : "bg-white/5 text-mist"
+                }`}
+              >
+                {participant.cameraEnabled ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />}
+              </div>
+              <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 text-mist">
                 <MoreHorizontal className="h-4 w-4" />
               </button>
             </div>
@@ -55,4 +62,3 @@ export function ParticipantsPanel({ participants }: { participants: Participant[
     </section>
   );
 }
-

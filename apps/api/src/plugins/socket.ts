@@ -4,12 +4,11 @@ import { Server } from "socket.io";
 import type { ChatMessage, Participant } from "@syncwatch/shared";
 
 import { store } from "../lib/store.js";
-import { env } from "../config/env.js";
 
 export function registerSocketLayer(server: HttpServer) {
   const io = new Server(server, {
     cors: {
-      origin: env.WEB_URL,
+      origin: true,
       credentials: true
     }
   });
@@ -37,7 +36,10 @@ export function registerSocketLayer(server: HttpServer) {
           name,
           role: role ?? "guest",
           avatar: name.charAt(0).toUpperCase(),
-          status: "online"
+          status: "online",
+          isMuted: true,
+          cameraEnabled: false,
+          isSpeaking: false
         });
 
         if (!room) {
@@ -60,7 +62,7 @@ export function registerSocketLayer(server: HttpServer) {
 
     socket.on("chat:send", ({ roomSlug, text, authorName }: { roomSlug: string; text: string; authorName: string }) => {
       const message = store.addMessage(roomSlug, {
-        authorId: socket.id,
+        authorId: (socket.data.participantId as string | undefined) ?? socket.id,
         authorName,
         avatar: authorName.charAt(0).toUpperCase(),
         text,
@@ -72,6 +74,10 @@ export function registerSocketLayer(server: HttpServer) {
         return;
       }
 
+      io.to(roomSlug).emit("chat:message", message);
+    });
+
+    socket.on("chat:relay", ({ roomSlug, message }: { roomSlug: string; message: ChatMessage }) => {
       io.to(roomSlug).emit("chat:message", message);
     });
 
@@ -90,8 +96,59 @@ export function registerSocketLayer(server: HttpServer) {
       if (playback) io.to(roomSlug).emit("video:state", playback);
     });
 
-    socket.on("voice:signal", ({ roomSlug, payload }: { roomSlug: string; payload: unknown }) => {
-      socket.to(roomSlug).emit("voice:signal", { from: socket.id, payload });
+    socket.on(
+      "participant:media",
+      ({
+        roomSlug,
+        patch
+      }: {
+        roomSlug: string;
+        patch: Partial<Pick<Participant, "isMuted" | "cameraEnabled" | "isSpeaking" | "status">>;
+      }) => {
+        const participantId = socket.data.participantId as string | undefined;
+        if (!participantId) {
+          socket.emit("room:error", { message: "Participant not registered" });
+          return;
+        }
+
+        const room = store.updateParticipant(roomSlug, participantId, patch);
+        if (!room) {
+          socket.emit("room:error", { message: "Room not found" });
+          return;
+        }
+
+        io.to(roomSlug).emit("room:users", room.participants);
+        io.to(roomSlug).emit("room:state", room);
+      }
+    );
+
+    socket.on(
+      "voice:signal",
+      ({
+        roomSlug,
+        targetParticipantId,
+        payload
+      }: {
+        roomSlug: string;
+        targetParticipantId?: string;
+        payload: unknown;
+      }) => {
+        socket.to(roomSlug).emit("voice:signal", {
+          fromParticipantId: (socket.data.participantId as string | undefined) ?? socket.id,
+          targetParticipantId,
+          payload
+        });
+      }
+    );
+
+    socket.on("chat:history-sync", ({ roomSlug }: { roomSlug: string }) => {
+      const room = store.getRoom(roomSlug);
+      if (!room) {
+        socket.emit("room:error", { message: "Room not found" });
+        return;
+      }
+
+      socket.emit("room:state", room);
     });
 
     socket.on("disconnecting", () => {

@@ -1,8 +1,6 @@
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
-
-import { env } from "./config/env.js";
 import { healthRoutes } from "./modules/health/routes.js";
 import { authRoutes } from "./modules/auth/routes.js";
 import { roomRoutes } from "./modules/rooms/routes.js";
@@ -15,7 +13,7 @@ export async function createApp() {
   });
 
   await app.register(cors, {
-    origin: env.WEB_URL,
+    origin: true,
     credentials: true
   });
 
@@ -31,4 +29,3 @@ export async function createApp() {
 
   return app;
 }
-

@@ -1,18 +1,46 @@
 "use client";
 
-import { AudioLines, Copy, ExternalLink, Heart, Link2, Mic, PanelRight, ShieldCheck, UsersRound, Video } from "lucide-react";
-import type { ChatMessage, RoomState } from "@syncwatch/shared";
+import {
+  AudioLines,
+  Camera,
+  CameraOff,
+  Copy,
+  ExternalLink,
+  Heart,
+  Link2,
+  Mic,
+  MicOff,
+  PanelRight,
+  ShieldCheck,
+  UsersRound,
+  Video
+} from "lucide-react";
+import type { ChatMessage, Participant, RoomState } from "@syncwatch/shared";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 
-import { PlayerFrame } from "@/components/room/player-frame";
 import { ChatPanel } from "@/components/room/chat-panel";
+import { MediaStage, type RemoteMediaTile } from "@/components/room/media-stage";
 import { ParticipantsPanel } from "@/components/room/participants-panel";
+import { PlayerFrame } from "@/components/room/player-frame";
 import { apiFetch } from "@/lib/api";
 import { socketUrl } from "@/lib/config";
 import { clearRoomPresence, loadRoomPresence, saveRoomPresence } from "@/lib/room-presence";
 import { loadSession, subscribeSessionChange, type SessionState } from "@/lib/session";
 import { getSourceLabel } from "@/lib/sources";
+
+type VoiceSignalPayload =
+  | { type: "offer"; description: RTCSessionDescriptionInit }
+  | { type: "answer"; description: RTCSessionDescriptionInit }
+  | { type: "candidate"; candidate: RTCIceCandidateInit }
+  | { type: "renegotiate" };
+
+const rtcConfiguration: RTCConfiguration = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" }
+  ]
+};
 
 export function RoomShell({ slug }: { slug: string }) {
   const [room, setRoom] = useState<RoomState | null>(null);
@@ -27,22 +55,35 @@ export function RoomShell({ slug }: { slug: string }) {
   const [cameraEnabled, setCameraEnabled] = useState(false);
   const [panelOpen, setPanelOpen] = useState(true);
   const [copiedInvite, setCopiedInvite] = useState(false);
+  const [remoteMediaTiles, setRemoteMediaTiles] = useState<RemoteMediaTile[]>([]);
+  const [localMediaVersion, setLocalMediaVersion] = useState(0);
   const socketRef = useRef<Socket | null>(null);
   const autoJoinRef = useRef(false);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-  const videoStreamRef = useRef<MediaStream | null>(null);
-
-  useEffect(() => {
-    return () => {
-      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
-      videoStreamRef.current?.getTracks().forEach((track) => track.stop());
-    };
-  }, []);
+  const localMediaStreamRef = useRef<MediaStream | null>(null);
+  const localPreviewRef = useRef<HTMLVideoElement | null>(null);
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const remoteStreamsRef = useRef<Map<string, MediaStream>>(new Map());
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(new Map());
+  const negotiationLocksRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const syncSession = () => setSession(loadSession());
     syncSession();
     return subscribeSessionChange(syncSession);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      socketRef.current?.disconnect();
+      for (const connection of peerConnectionsRef.current.values()) {
+        connection.close();
+      }
+      peerConnectionsRef.current.clear();
+      remoteStreamsRef.current.clear();
+      pendingIceCandidatesRef.current.clear();
+      localMediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+      localMediaStreamRef.current = null;
+    };
   }, []);
 
   useEffect(() => {
@@ -58,8 +99,9 @@ export function RoomShell({ slug }: { slug: string }) {
 
     apiFetch<RoomState>(`/api/rooms/${slug}`)
       .then((data) => {
-        if (!active) return;
-        setRoom(data);
+        if (active) {
+          setRoom(data);
+        }
       })
       .catch((cause: Error) => {
         if (!active) return;
@@ -68,8 +110,9 @@ export function RoomShell({ slug }: { slug: string }) {
         setError(cause.message);
       })
       .finally(() => {
-        if (!active) return;
-        setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       });
 
     return () => {
@@ -95,14 +138,269 @@ export function RoomShell({ slug }: { slug: string }) {
   }, [guestName, joining, participantId, room, session]);
 
   useEffect(() => {
+    if (!participantId || !room) {
+      return;
+    }
+
+    const me = room.participants.find((participant) => participant.id === participantId);
+    if (!me) {
+      return;
+    }
+
+    setMicrophoneEnabled(!(me.isMuted ?? true));
+    setCameraEnabled(Boolean(me.cameraEnabled));
+  }, [participantId, room]);
+
+  useEffect(() => {
+    if (localPreviewRef.current) {
+      localPreviewRef.current.srcObject = localMediaStreamRef.current;
+    }
+  }, [localMediaVersion]);
+
+  function refreshRemoteTiles() {
+    setRemoteMediaTiles(
+      [...remoteStreamsRef.current.entries()].map(([remoteParticipantId, stream]) => ({
+        participantId: remoteParticipantId,
+        stream
+      }))
+    );
+  }
+
+  function closePeerConnection(remoteParticipantId: string) {
+    const existing = peerConnectionsRef.current.get(remoteParticipantId);
+    if (existing) {
+      existing.ontrack = null;
+      existing.onicecandidate = null;
+      existing.onconnectionstatechange = null;
+      existing.close();
+      peerConnectionsRef.current.delete(remoteParticipantId);
+    }
+
+    remoteStreamsRef.current.delete(remoteParticipantId);
+    pendingIceCandidatesRef.current.delete(remoteParticipantId);
+    negotiationLocksRef.current.delete(remoteParticipantId);
+    refreshRemoteTiles();
+  }
+
+  function attachLocalTracks(connection: RTCPeerConnection) {
+    const localStream = localMediaStreamRef.current;
+    if (!localStream) {
+      return;
+    }
+
+    for (const track of localStream.getTracks()) {
+      const alreadyAdded = connection.getSenders().some((sender) => sender.track?.id === track.id);
+      if (!alreadyAdded) {
+        connection.addTrack(track, localStream);
+      }
+    }
+  }
+
+  function ensurePeerConnection(remoteParticipantId: string) {
+    const existing = peerConnectionsRef.current.get(remoteParticipantId);
+    if (existing) {
+      return existing;
+    }
+
+    const connection = new RTCPeerConnection(rtcConfiguration);
+    const remoteStream = remoteStreamsRef.current.get(remoteParticipantId) ?? new MediaStream();
+    remoteStreamsRef.current.set(remoteParticipantId, remoteStream);
+
+    connection.addTransceiver("audio", { direction: "recvonly" });
+    connection.addTransceiver("video", { direction: "recvonly" });
+    attachLocalTracks(connection);
+
+    connection.onicecandidate = (event) => {
+      if (!event.candidate || !socketRef.current) {
+        return;
+      }
+
+      socketRef.current.emit("voice:signal", {
+        roomSlug: slug,
+        targetParticipantId: remoteParticipantId,
+        payload: {
+          type: "candidate",
+          candidate: event.candidate.toJSON()
+        } satisfies VoiceSignalPayload
+      });
+    };
+
+    connection.ontrack = (event) => {
+      const nextRemoteStream = remoteStreamsRef.current.get(remoteParticipantId) ?? new MediaStream();
+      const sourceStream = event.streams[0];
+
+      if (sourceStream) {
+        for (const track of sourceStream.getTracks()) {
+          const exists = nextRemoteStream.getTracks().some((item) => item.id === track.id);
+          if (!exists) {
+            nextRemoteStream.addTrack(track);
+          }
+        }
+      } else {
+        const exists = nextRemoteStream.getTracks().some((item) => item.id === event.track.id);
+        if (!exists) {
+          nextRemoteStream.addTrack(event.track);
+        }
+      }
+
+      remoteStreamsRef.current.set(remoteParticipantId, nextRemoteStream);
+      refreshRemoteTiles();
+    };
+
+    connection.onconnectionstatechange = () => {
+      if (connection.connectionState === "failed" || connection.connectionState === "closed") {
+        closePeerConnection(remoteParticipantId);
+      }
+    };
+
+    peerConnectionsRef.current.set(remoteParticipantId, connection);
+    refreshRemoteTiles();
+    return connection;
+  }
+
+  async function flushPendingIceCandidates(remoteParticipantId: string, connection: RTCPeerConnection) {
+    const pending = pendingIceCandidatesRef.current.get(remoteParticipantId);
+    if (!pending?.length) {
+      return;
+    }
+
+    pendingIceCandidatesRef.current.delete(remoteParticipantId);
+
+    for (const candidate of pending) {
+      await connection.addIceCandidate(candidate);
+    }
+  }
+
+  async function renegotiateWith(remoteParticipantId: string) {
+    if (!socketRef.current || !socketConnected) {
+      return;
+    }
+
+    const connection = ensurePeerConnection(remoteParticipantId);
+    if (connection.signalingState !== "stable" || negotiationLocksRef.current.has(remoteParticipantId)) {
+      return;
+    }
+
+    negotiationLocksRef.current.add(remoteParticipantId);
+
+    try {
+      attachLocalTracks(connection);
+      const offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
+
+      if (connection.localDescription) {
+        socketRef.current.emit("voice:signal", {
+          roomSlug: slug,
+          targetParticipantId: remoteParticipantId,
+          payload: {
+            type: "offer",
+            description: connection.localDescription.toJSON()
+          } satisfies VoiceSignalPayload
+        });
+      }
+    } catch {
+      setError("Failed to negotiate live audio/video connection.");
+    } finally {
+      negotiationLocksRef.current.delete(remoteParticipantId);
+    }
+  }
+
+  function requestPeerRefresh(targetParticipantIds?: string[]) {
+    if (!participantId || !socketRef.current) {
+      return;
+    }
+
+    const remoteIds =
+      targetParticipantIds ?? room?.participants.filter((participant) => participant.id !== participantId).map((participant) => participant.id) ?? [];
+
+    for (const remoteParticipantId of remoteIds) {
+      if (participantId < remoteParticipantId) {
+        void renegotiateWith(remoteParticipantId);
+      } else {
+        socketRef.current.emit("voice:signal", {
+          roomSlug: slug,
+          targetParticipantId: remoteParticipantId,
+          payload: {
+            type: "renegotiate"
+          } satisfies VoiceSignalPayload
+        });
+      }
+    }
+  }
+
+  async function handleVoiceSignal({
+    fromParticipantId,
+    targetParticipantId,
+    payload
+  }: {
+    fromParticipantId: string;
+    targetParticipantId?: string;
+    payload: VoiceSignalPayload;
+  }) {
+    if (!participantId || fromParticipantId === participantId) {
+      return;
+    }
+
+    if (targetParticipantId && targetParticipantId !== participantId) {
+      return;
+    }
+
+    const connection = ensurePeerConnection(fromParticipantId);
+
+    try {
+      if (payload.type === "offer") {
+        await connection.setRemoteDescription(payload.description);
+        attachLocalTracks(connection);
+        await flushPendingIceCandidates(fromParticipantId, connection);
+        const answer = await connection.createAnswer();
+        await connection.setLocalDescription(answer);
+
+        if (connection.localDescription && socketRef.current) {
+          socketRef.current.emit("voice:signal", {
+            roomSlug: slug,
+            targetParticipantId: fromParticipantId,
+            payload: {
+              type: "answer",
+              description: connection.localDescription.toJSON()
+            } satisfies VoiceSignalPayload
+          });
+        }
+
+        return;
+      }
+
+      if (payload.type === "answer") {
+        await connection.setRemoteDescription(payload.description);
+        await flushPendingIceCandidates(fromParticipantId, connection);
+        return;
+      }
+
+      if (payload.type === "candidate") {
+        if (connection.remoteDescription) {
+          await connection.addIceCandidate(payload.candidate);
+        } else {
+          const pending = pendingIceCandidatesRef.current.get(fromParticipantId) ?? [];
+          pending.push(payload.candidate);
+          pendingIceCandidatesRef.current.set(fromParticipantId, pending);
+        }
+        return;
+      }
+
+      if (payload.type === "renegotiate" && participantId < fromParticipantId) {
+        await renegotiateWith(fromParticipantId);
+      }
+    } catch {
+      setError("Failed to process live audio/video signaling.");
+    }
+  }
+
+  useEffect(() => {
     const participantName = guestName.trim() || session?.user.username?.trim() || "";
     if (!room || !participantId || !participantName || socketRef.current) {
       return;
     }
 
-    const roomHostId = room.hostId;
-    const participantRole = participantId === roomHostId ? "host" : session ? "user" : "guest";
-
+    const participantRole = participantId === room.hostId ? "host" : session ? "user" : "guest";
     const socket = io(socketUrl, {
       withCredentials: true,
       reconnection: true
@@ -118,6 +416,15 @@ export function RoomShell({ slug }: { slug: string }) {
         role: participantRole,
         participantId
       });
+      socket.emit("chat:history-sync", { roomSlug: slug });
+      socket.emit("participant:media", {
+        roomSlug: slug,
+        patch: {
+          isMuted: !microphoneEnabled,
+          cameraEnabled,
+          status: microphoneEnabled ? "listening" : "online"
+        }
+      });
     });
 
     socket.on("room:state", (nextRoom: RoomState) => {
@@ -129,19 +436,32 @@ export function RoomShell({ slug }: { slug: string }) {
     });
 
     socket.on("chat:message", (message: ChatMessage) => {
-      setRoom((current) =>
-        current
-          ? {
-              ...current,
-              messages: [...current.messages, message]
-            }
-          : current
-      );
+      setRoom((current) => {
+        if (!current || current.messages.some((item) => item.id === message.id)) {
+          return current;
+        }
+
+        return {
+          ...current,
+          messages: [...current.messages, message]
+        };
+      });
     });
 
     socket.on("video:state", (playback: RoomState["playback"]) => {
       setRoom((current) => (current ? { ...current, playback } : current));
     });
+
+    socket.on(
+      "voice:signal",
+      (signal: {
+        fromParticipantId: string;
+        targetParticipantId?: string;
+        payload: VoiceSignalPayload;
+      }) => {
+        void handleVoiceSignal(signal);
+      }
+    );
 
     socket.on("room:error", ({ message }: { message: string }) => {
       setError(message);
@@ -162,29 +482,88 @@ export function RoomShell({ slug }: { slug: string }) {
     };
   }, [guestName, participantId, room?.hostId, session, slug]);
 
+  const participantIdsKey = room?.participants.map((participant) => participant.id).sort().join("|") ?? "";
+
+  useEffect(() => {
+    if (!room || !participantId || !socketConnected) {
+      return;
+    }
+
+    const remoteParticipantIds = room.participants.filter((participant) => participant.id !== participantId).map((participant) => participant.id);
+
+    for (const remoteParticipantId of remoteParticipantIds) {
+      ensurePeerConnection(remoteParticipantId);
+    }
+
+    for (const remoteParticipantId of [...peerConnectionsRef.current.keys()]) {
+      if (!remoteParticipantIds.includes(remoteParticipantId)) {
+        closePeerConnection(remoteParticipantId);
+      }
+    }
+
+    requestPeerRefresh(remoteParticipantIds);
+  }, [participantId, participantIdsKey, socketConnected]);
+
+  useEffect(() => {
+    if (!socketConnected || !participantId) {
+      return;
+    }
+
+    requestPeerRefresh();
+  }, [localMediaVersion, participantId, socketConnected]);
+
   useEffect(() => {
     if (!room) {
       return;
     }
 
-    let active = true;
-
     const interval = window.setInterval(() => {
       apiFetch<RoomState>(`/api/rooms/${slug}`)
         .then((nextRoom) => {
-          if (!active) return;
           setRoom(nextRoom);
         })
         .catch(() => {});
-    }, 5000);
+    }, socketConnected ? 4000 : 1500);
 
     return () => {
-      active = false;
       window.clearInterval(interval);
     };
-  }, [room?.slug, slug]);
+  }, [room?.id, slug, socketConnected]);
 
   const canInteract = Boolean(room && participantId);
+
+  function patchLocalParticipant(patch: Partial<Participant>) {
+    if (!participantId) {
+      return;
+    }
+
+    setRoom((current) =>
+      current
+        ? {
+            ...current,
+            participants: current.participants.map((participant) =>
+              participant.id === participantId
+                ? {
+                    ...participant,
+                    ...patch
+                  }
+                : participant
+            )
+          }
+        : current
+    );
+  }
+
+  function emitParticipantMediaPatch(patch: Partial<Pick<Participant, "isMuted" | "cameraEnabled" | "isSpeaking" | "status">>) {
+    patchLocalParticipant(patch);
+
+    if (socketRef.current) {
+      socketRef.current.emit("participant:media", {
+        roomSlug: slug,
+        patch
+      });
+    }
+  }
 
   async function joinRoom(nameOverride?: string) {
     const participantName = nameOverride?.trim() || guestName.trim() || session?.user.username?.trim() || "";
@@ -223,47 +602,55 @@ export function RoomShell({ slug }: { slug: string }) {
   async function sendChat(text: string) {
     if (!canInteract) {
       setError("Join the room before sending messages.");
-      return;
+      throw new Error("Join the room before sending messages.");
     }
 
-    const authorName = guestName.trim() || session?.user.username || "Guest";
-
-    if (socketRef.current && socketConnected) {
-      socketRef.current.emit("chat:send", {
-        roomSlug: slug,
-        text,
-        authorName
+    try {
+      const authorName = guestName.trim() || session?.user.username || "Guest";
+      const message = await apiFetch<ChatMessage>(`/api/rooms/${slug}/messages`, {
+        method: "POST",
+        token: session?.accessToken,
+        body: JSON.stringify({
+          text,
+          authorName
+        })
       });
-      return;
+
+      setRoom((current) => {
+        if (!current || current.messages.some((item) => item.id === message.id)) {
+          return current;
+        }
+
+        return {
+          ...current,
+          messages: [...current.messages, message]
+        };
+      });
+
+      if (socketRef.current && socketConnected) {
+        socketRef.current.emit("chat:relay", {
+          roomSlug: slug,
+          message
+        });
+      }
+
+      setError("");
+    } catch (cause) {
+      const nextError = cause instanceof Error ? cause.message : "Failed to send message.";
+      setError(nextError);
+      throw cause;
     }
-
-    await apiFetch(`/api/rooms/${slug}/messages`, {
-      method: "POST",
-      token: session?.accessToken,
-      body: JSON.stringify({
-        text,
-        authorName
-      })
-    });
-
-    const nextRoom = await apiFetch<RoomState>(`/api/rooms/${slug}`);
-    setRoom(nextRoom);
   }
 
   function togglePlayback() {
     if (!socketRef.current || !room) return;
-    socketRef.current.emit(room.playback.state === "playing" ? "video:pause" : "video:play", {
-      roomSlug: slug
-    });
+    socketRef.current.emit(room.playback.state === "playing" ? "video:pause" : "video:play", { roomSlug: slug });
   }
 
   function seek(deltaSeconds: number) {
     if (!socketRef.current || !room) return;
     const nextTime = Math.max(0, Math.min(room.playback.duration || 0, room.playback.currentTime + deltaSeconds));
-    socketRef.current.emit("video:seek", {
-      roomSlug: slug,
-      currentTime: nextTime
-    });
+    socketRef.current.emit("video:seek", { roomSlug: slug, currentTime: nextTime });
   }
 
   async function copyInviteLink() {
@@ -278,53 +665,77 @@ export function RoomShell({ slug }: { slug: string }) {
     }
   }
 
-  async function toggleMicrophone() {
+  async function ensureLocalMedia(options: { audio?: boolean; video?: boolean }) {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setError("Microphone API is not available in this browser.");
-      return;
+      throw new Error("Media devices are not available in this browser.");
     }
 
+    const localStream = localMediaStreamRef.current ?? new MediaStream();
+    localMediaStreamRef.current = localStream;
+
+    const needsAudio = Boolean(options.audio) && localStream.getAudioTracks().length === 0;
+    const needsVideo = Boolean(options.video) && localStream.getVideoTracks().length === 0;
+
+    if (needsAudio || needsVideo) {
+      const freshStream = await navigator.mediaDevices.getUserMedia({
+        audio: needsAudio,
+        video: needsVideo
+      });
+
+      for (const track of freshStream.getTracks()) {
+        localStream.addTrack(track);
+      }
+    }
+
+    if (localPreviewRef.current) {
+      localPreviewRef.current.srcObject = localStream;
+    }
+
+    for (const connection of peerConnectionsRef.current.values()) {
+      attachLocalTracks(connection);
+    }
+
+    setLocalMediaVersion((current) => current + 1);
+    return localStream;
+  }
+
+  async function toggleMicrophone() {
     try {
-      if (!audioStreamRef.current) {
-        audioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
-        setMicrophoneEnabled(true);
-        setError("");
+      const localStream = await ensureLocalMedia({ audio: true });
+      const audioTrack = localStream.getAudioTracks()[0];
+      if (!audioTrack) {
+        setError("Microphone track is unavailable.");
         return;
       }
 
-      const nextEnabled = !microphoneEnabled;
-      audioStreamRef.current.getAudioTracks().forEach((track) => {
-        track.enabled = nextEnabled;
-      });
+      const nextEnabled = !(audioTrack.enabled && microphoneEnabled);
+      audioTrack.enabled = nextEnabled;
       setMicrophoneEnabled(nextEnabled);
+      emitParticipantMediaPatch({ isMuted: !nextEnabled, status: nextEnabled ? "listening" : "online" });
+      requestPeerRefresh();
       setError("");
-    } catch {
-      setError("Microphone permission was blocked.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Microphone permission was blocked.");
     }
   }
 
   async function toggleCamera() {
-    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      setError("Camera API is not available in this browser.");
-      return;
-    }
-
     try {
-      if (!videoStreamRef.current) {
-        videoStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: true });
-        setCameraEnabled(true);
-        setError("");
+      const localStream = await ensureLocalMedia({ video: true });
+      const videoTrack = localStream.getVideoTracks()[0];
+      if (!videoTrack) {
+        setError("Camera track is unavailable.");
         return;
       }
 
-      const nextEnabled = !cameraEnabled;
-      videoStreamRef.current.getVideoTracks().forEach((track) => {
-        track.enabled = nextEnabled;
-      });
+      const nextEnabled = !(videoTrack.enabled && cameraEnabled);
+      videoTrack.enabled = nextEnabled;
       setCameraEnabled(nextEnabled);
+      emitParticipantMediaPatch({ cameraEnabled: nextEnabled });
+      requestPeerRefresh();
       setError("");
-    } catch {
-      setError("Camera permission was blocked.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Camera permission was blocked.");
     }
   }
 
@@ -349,6 +760,9 @@ export function RoomShell({ slug }: { slug: string }) {
     return <RoomStateCard title="Room not found" description="Check the invite link or start a new room from the source launcher." />;
   }
 
+  const localParticipant = room.participants.find((participant) => participant.id === participantId) ?? null;
+  const remoteParticipants = room.participants.filter((participant) => participant.id !== participantId);
+
   return (
     <div className="mx-auto grid w-full max-w-7xl gap-6 px-5 py-8 lg:grid-cols-[minmax(0,1.45fr)_420px] lg:px-8">
       <div className="space-y-6">
@@ -358,6 +772,16 @@ export function RoomShell({ slug }: { slug: string }) {
         </div>
 
         <PlayerFrame playback={room.playback} onTogglePlayback={togglePlayback} onSeek={seek} />
+
+        <MediaStage
+          localName={localParticipant?.name || guestName || "You"}
+          localStream={localMediaStreamRef.current}
+          localPreviewRef={localPreviewRef}
+          localCameraEnabled={cameraEnabled}
+          localMicrophoneEnabled={microphoneEnabled}
+          remoteParticipants={remoteParticipants}
+          remoteMediaTiles={remoteMediaTiles}
+        />
 
         <section className="grid gap-5 rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-6 lg:grid-cols-[minmax(0,1fr)_280px]">
           <div>
@@ -383,12 +807,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
           <div className="grid gap-4">
             {room.playback.sourceUrl ? (
-              <a
-                href={room.playback.sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center justify-center gap-3 rounded-[22px] bg-white px-5 py-4 text-base font-semibold text-slate-950"
-              >
+              <a href={room.playback.sourceUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-3 rounded-[22px] bg-white px-5 py-4 text-base font-semibold text-slate-950">
                 <ExternalLink className="h-5 w-5" />
                 Open source
               </a>
@@ -401,9 +820,7 @@ export function RoomShell({ slug }: { slug: string }) {
             <button
               type="button"
               onClick={() => void toggleMicrophone()}
-              className={`flex items-center justify-center gap-3 rounded-[22px] border px-5 py-4 text-base font-medium ${
-                microphoneEnabled ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/[0.03] text-white"
-              }`}
+              className={`flex items-center justify-center gap-3 rounded-[22px] border px-5 py-4 text-base font-medium ${microphoneEnabled ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/[0.03] text-white"}`}
             >
               <AudioLines className="h-5 w-5" />
               {microphoneEnabled ? "Voice active" : "Voice room"}
@@ -421,8 +838,8 @@ export function RoomShell({ slug }: { slug: string }) {
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <ActionPill icon={<UsersRound className="h-5 w-5" />} label={copiedInvite ? "Copied" : "Invite"} onClick={copyInviteLink} active={copiedInvite} />
-          <ActionPill icon={<Mic className="h-5 w-5" />} label={microphoneEnabled ? "Mic on" : "Microphone"} onClick={() => void toggleMicrophone()} active={microphoneEnabled} />
-          <ActionPill icon={<Video className="h-5 w-5" />} label={cameraEnabled ? "Camera on" : "Camera"} onClick={() => void toggleCamera()} active={cameraEnabled} />
+          <ActionPill icon={microphoneEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />} label={microphoneEnabled ? "Mic on" : "Microphone"} onClick={() => void toggleMicrophone()} active={microphoneEnabled} />
+          <ActionPill icon={cameraEnabled ? <Camera className="h-5 w-5" /> : <CameraOff className="h-5 w-5" />} label={cameraEnabled ? "Camera on" : "Camera"} onClick={() => void toggleCamera()} active={cameraEnabled} />
           <ActionPill icon={<Heart className="h-5 w-5" />} label="Reaction" onClick={() => void sendReaction()} />
         </section>
 
@@ -431,17 +848,8 @@ export function RoomShell({ slug }: { slug: string }) {
             <div className="mb-3 text-2xl font-semibold text-white">Join this room</div>
             <p className="mb-5 text-sm text-mist">Enter a name if you opened the invite as a guest. Signed-in users can auto-join with their account name.</p>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <input
-                value={guestName}
-                onChange={(event) => setGuestName(event.target.value)}
-                placeholder="Your name"
-                className="h-12 flex-1 rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-white outline-none placeholder:text-mist"
-              />
-              <button
-                onClick={() => void joinRoom()}
-                disabled={joining}
-                className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60"
-              >
+              <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Your name" className="h-12 flex-1 rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-white outline-none placeholder:text-mist" />
+              <button type="button" onClick={() => void joinRoom()} disabled={joining} className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60">
                 {joining ? "Joining..." : "Join room"}
               </button>
             </div>
@@ -463,8 +871,8 @@ export function RoomShell({ slug }: { slug: string }) {
             <p>Realtime: {socketConnected ? "connected" : "fallback sync mode"}</p>
             <p>Microphone: {microphoneEnabled ? "enabled" : "off"}</p>
             <p>Camera: {cameraEnabled ? "enabled" : "off"}</p>
+            <p>Voice/video: peer-to-peer via WebRTC</p>
             <p>Temporary room session: stays available for a short grace period after everyone leaves</p>
-            <p>Invite link points directly to this selected source room</p>
           </div>
         </section>
         {error && room ? <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">{error}</div> : null}
@@ -485,13 +893,7 @@ function ActionPill({
   active?: boolean;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex items-center justify-center gap-3 rounded-[24px] border px-5 py-5 text-base text-white transition ${
-        active ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-white/8 bg-white/[0.03] hover:bg-white/[0.05]"
-      }`}
-    >
+    <button type="button" onClick={onClick} className={`flex items-center justify-center gap-3 rounded-[24px] border px-5 py-5 text-base text-white transition ${active ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-white/8 bg-white/[0.03] hover:bg-white/[0.05]"}`}>
       {icon}
       {label}
     </button>
