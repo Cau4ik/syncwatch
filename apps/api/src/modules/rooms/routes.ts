@@ -22,6 +22,11 @@ const joinRoomSchema = z.object({
   name: z.string().min(2).max(24).optional()
 });
 
+const roomMessageSchema = z.object({
+  text: z.string().min(1).max(500),
+  authorName: z.string().min(2).max(24).optional()
+});
+
 function createFallbackPlayback() {
   return buildPlaybackFromLaunch({
     source: "youtube",
@@ -129,5 +134,36 @@ export async function roomRoutes(app: FastifyInstance) {
       ...room,
       participantId
     };
+  });
+
+  app.post("/api/rooms/:slug/messages", async (request, reply) => {
+    const params = z.object({ slug: z.string() }).parse(request.params);
+    const body = roomMessageSchema.parse(request.body ?? {});
+    const currentRoom = store.getRoom(params.slug);
+
+    if (!currentRoom) {
+      return reply.code(404).send({ message: "Room not found" });
+    }
+
+    const user = getRequestUser(request);
+    const authorName = user?.username ?? body.authorName?.trim();
+
+    if (!authorName) {
+      return reply.code(400).send({ message: "Author name is required" });
+    }
+
+    const message = store.addMessage(params.slug, {
+      authorId: user?.id ?? `guest-message-${nanoid(8)}`,
+      authorName,
+      avatar: authorName.charAt(0).toUpperCase(),
+      text: body.text.trim(),
+      type: "user"
+    });
+
+    if (!message) {
+      return reply.code(404).send({ message: "Room not found" });
+    }
+
+    return reply.code(201).send(message);
   });
 }

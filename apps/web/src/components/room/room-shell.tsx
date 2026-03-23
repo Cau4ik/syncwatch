@@ -22,8 +22,22 @@ export function RoomShell({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState("");
+  const [socketConnected, setSocketConnected] = useState(false);
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [copiedInvite, setCopiedInvite] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const autoJoinRef = useRef(false);
+  const audioStreamRef = useRef<MediaStream | null>(null);
+  const videoStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    return () => {
+      audioStreamRef.current?.getTracks().forEach((track) => track.stop());
+      videoStreamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
 
   useEffect(() => {
     const syncSession = () => setSession(loadSession());
@@ -62,6 +76,7 @@ export function RoomShell({ slug }: { slug: string }) {
       active = false;
       socketRef.current?.disconnect();
       socketRef.current = null;
+      setSocketConnected(false);
     };
   }, [slug]);
 
@@ -85,17 +100,22 @@ export function RoomShell({ slug }: { slug: string }) {
       return;
     }
 
+    const roomHostId = room.hostId;
+    const participantRole = participantId === roomHostId ? "host" : session ? "user" : "guest";
+
     const socket = io(socketUrl, {
-      transports: ["websocket"]
+      withCredentials: true,
+      reconnection: true
     });
 
     socketRef.current = socket;
 
     socket.on("connect", () => {
+      setSocketConnected(true);
       socket.emit("room:join", {
         roomSlug: slug,
         name: participantName,
-        role: room && participantId === room.hostId ? "host" : session ? "user" : "guest",
+        role: participantRole,
         participantId
       });
     });
@@ -127,11 +147,42 @@ export function RoomShell({ slug }: { slug: string }) {
       setError(message);
     });
 
+    socket.on("connect_error", () => {
+      setSocketConnected(false);
+    });
+
+    socket.on("disconnect", () => {
+      setSocketConnected(false);
+    });
+
     return () => {
       socket.disconnect();
       socketRef.current = null;
+      setSocketConnected(false);
     };
-  }, [guestName, participantId, room, session, slug]);
+  }, [guestName, participantId, room?.hostId, session, slug]);
+
+  useEffect(() => {
+    if (!room) {
+      return;
+    }
+
+    let active = true;
+
+    const interval = window.setInterval(() => {
+      apiFetch<RoomState>(`/api/rooms/${slug}`)
+        .then((nextRoom) => {
+          if (!active) return;
+          setRoom(nextRoom);
+        })
+        .catch(() => {});
+    }, 5000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [room?.slug, slug]);
 
   const canInteract = Boolean(room && participantId);
 
@@ -170,12 +221,33 @@ export function RoomShell({ slug }: { slug: string }) {
   }
 
   async function sendChat(text: string) {
-    if (!socketRef.current || !canInteract) return;
-    socketRef.current.emit("chat:send", {
-      roomSlug: slug,
-      text,
-      authorName: guestName.trim() || session?.user.username || "Guest"
+    if (!canInteract) {
+      setError("Join the room before sending messages.");
+      return;
+    }
+
+    const authorName = guestName.trim() || session?.user.username || "Guest";
+
+    if (socketRef.current && socketConnected) {
+      socketRef.current.emit("chat:send", {
+        roomSlug: slug,
+        text,
+        authorName
+      });
+      return;
+    }
+
+    await apiFetch(`/api/rooms/${slug}/messages`, {
+      method: "POST",
+      token: session?.accessToken,
+      body: JSON.stringify({
+        text,
+        authorName
+      })
     });
+
+    const nextRoom = await apiFetch<RoomState>(`/api/rooms/${slug}`);
+    setRoom(nextRoom);
   }
 
   function togglePlayback() {
@@ -199,8 +271,69 @@ export function RoomShell({ slug }: { slug: string }) {
 
     try {
       await navigator.clipboard.writeText(room.inviteUrl);
+      setCopiedInvite(true);
+      window.setTimeout(() => setCopiedInvite(false), 1800);
     } catch {
       setError("Failed to copy room link.");
+    }
+  }
+
+  async function toggleMicrophone() {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError("Microphone API is not available in this browser.");
+      return;
+    }
+
+    try {
+      if (!audioStreamRef.current) {
+        audioStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+        setMicrophoneEnabled(true);
+        setError("");
+        return;
+      }
+
+      const nextEnabled = !microphoneEnabled;
+      audioStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = nextEnabled;
+      });
+      setMicrophoneEnabled(nextEnabled);
+      setError("");
+    } catch {
+      setError("Microphone permission was blocked.");
+    }
+  }
+
+  async function toggleCamera() {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError("Camera API is not available in this browser.");
+      return;
+    }
+
+    try {
+      if (!videoStreamRef.current) {
+        videoStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: true });
+        setCameraEnabled(true);
+        setError("");
+        return;
+      }
+
+      const nextEnabled = !cameraEnabled;
+      videoStreamRef.current.getVideoTracks().forEach((track) => {
+        track.enabled = nextEnabled;
+      });
+      setCameraEnabled(nextEnabled);
+      setError("");
+    } catch {
+      setError("Camera permission was blocked.");
+    }
+  }
+
+  async function sendReaction() {
+    try {
+      await sendChat("🔥");
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to send reaction.");
     }
   }
 
@@ -265,22 +398,32 @@ export function RoomShell({ slug }: { slug: string }) {
                 Source attached
               </button>
             )}
-            <button className="flex items-center justify-center gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] px-5 py-4 text-base font-medium text-white">
+            <button
+              type="button"
+              onClick={() => void toggleMicrophone()}
+              className={`flex items-center justify-center gap-3 rounded-[22px] border px-5 py-4 text-base font-medium ${
+                microphoneEnabled ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/[0.03] text-white"
+              }`}
+            >
               <AudioLines className="h-5 w-5" />
-              Voice room
+              {microphoneEnabled ? "Voice active" : "Voice room"}
             </button>
-            <button className="flex items-center justify-center gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] px-5 py-4 text-base font-medium text-white">
+            <button
+              type="button"
+              onClick={() => setPanelOpen((current) => !current)}
+              className="flex items-center justify-center gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] px-5 py-4 text-base font-medium text-white"
+            >
               <PanelRight className="h-5 w-5" />
-              Side panels
+              {panelOpen ? "Hide side panels" : "Open side panels"}
             </button>
           </div>
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <ActionPill icon={<UsersRound className="h-5 w-5" />} label="Invite" />
-          <ActionPill icon={<Mic className="h-5 w-5" />} label="Microphone" />
-          <ActionPill icon={<Video className="h-5 w-5" />} label="Camera" />
-          <ActionPill icon={<Heart className="h-5 w-5" />} label="Reactions" />
+          <ActionPill icon={<UsersRound className="h-5 w-5" />} label={copiedInvite ? "Copied" : "Invite"} onClick={copyInviteLink} active={copiedInvite} />
+          <ActionPill icon={<Mic className="h-5 w-5" />} label={microphoneEnabled ? "Mic on" : "Microphone"} onClick={() => void toggleMicrophone()} active={microphoneEnabled} />
+          <ActionPill icon={<Video className="h-5 w-5" />} label={cameraEnabled ? "Camera on" : "Camera"} onClick={() => void toggleCamera()} active={cameraEnabled} />
+          <ActionPill icon={<Heart className="h-5 w-5" />} label="Reaction" onClick={() => void sendReaction()} />
         </section>
 
         {!canInteract ? (
@@ -309,7 +452,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
       <div className="space-y-6">
         <ChatPanel messages={room.messages} onSend={sendChat} disabled={!canInteract} />
-        <ParticipantsPanel participants={room.participants} />
+        {panelOpen ? <ParticipantsPanel participants={room.participants} /> : null}
         <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-5">
           <div className="mb-3 flex items-center gap-3 text-white">
             <Link2 className="h-5 w-5 text-signal" />
@@ -317,19 +460,38 @@ export function RoomShell({ slug }: { slug: string }) {
           </div>
           <div className="space-y-3 text-sm text-mist">
             <p>Source: {getSourceLabel(room.playback.sourceType)}</p>
-            <p>Socket sync connected</p>
+            <p>Realtime: {socketConnected ? "connected" : "fallback sync mode"}</p>
+            <p>Microphone: {microphoneEnabled ? "enabled" : "off"}</p>
+            <p>Camera: {cameraEnabled ? "enabled" : "off"}</p>
             <p>Temporary room session: stays available for a short grace period after everyone leaves</p>
             <p>Invite link points directly to this selected source room</p>
           </div>
         </section>
+        {error && room ? <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">{error}</div> : null}
       </div>
     </div>
   );
 }
 
-function ActionPill({ icon, label }: { icon: ReactNode; label: string }) {
+function ActionPill({
+  icon,
+  label,
+  onClick,
+  active = false
+}: {
+  icon: ReactNode;
+  label: string;
+  onClick?: () => void;
+  active?: boolean;
+}) {
   return (
-    <button className="flex items-center justify-center gap-3 rounded-[24px] border border-white/8 bg-white/[0.03] px-5 py-5 text-base text-white transition hover:bg-white/[0.05]">
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center justify-center gap-3 rounded-[24px] border px-5 py-5 text-base text-white transition ${
+        active ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-white/8 bg-white/[0.03] hover:bg-white/[0.05]"
+      }`}
+    >
       {icon}
       {label}
     </button>
