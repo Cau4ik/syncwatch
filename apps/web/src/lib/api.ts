@@ -21,7 +21,7 @@ export async function apiFetch<T>(
     const fallback = `Request failed: ${response.status}`;
 
     try {
-      const data = (await response.json()) as { message?: string };
+      const data = (await response.clone().json()) as { message?: string };
       throw new Error(data.message || fallback);
     } catch {
       throw new Error(fallback);

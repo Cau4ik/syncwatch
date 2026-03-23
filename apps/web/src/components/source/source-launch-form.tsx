@@ -36,7 +36,7 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
       return;
     }
 
-    if (!session && !hostName.trim()) {
+    if (!hostName.trim()) {
       setError("Enter your name so the room owner is known.");
       return;
     }
@@ -56,7 +56,7 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
           source: source.id,
           title: title.trim() || undefined,
           value: value.trim(),
-          hostName: session ? undefined : hostName.trim()
+          hostName: hostName.trim()
         })
       });
 
@@ -115,18 +115,12 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
           <div className="mb-6 text-3xl font-semibold text-white">Create room from {source.label}</div>
 
           <div className="space-y-4">
-            {!session ? (
-              <Field
-                label="Your name"
-                placeholder="Host name"
-                value={hostName}
-                onChange={setHostName}
-              />
-            ) : (
-              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/80">
-                Room owner: @{session.user.username}
-              </div>
-            )}
+            <Field
+              label={session ? "Room owner" : "Your name"}
+              placeholder="Host name"
+              value={hostName}
+              onChange={setHostName}
+            />
 
             <Field
               label="Room title"
