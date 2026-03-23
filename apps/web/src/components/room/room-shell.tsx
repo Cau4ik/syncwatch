@@ -342,6 +342,17 @@ export function RoomShell({ slug }: { slug: string }) {
     }
   }
 
+  function renegotiateAllPeers() {
+    if (!participantId || !room || !socketConnected) {
+      return;
+    }
+
+    const remoteParticipantIds = room.participants.filter((participant) => participant.id !== participantId).map((participant) => participant.id);
+    for (const remoteParticipantId of remoteParticipantIds) {
+      void renegotiateWith(remoteParticipantId);
+    }
+  }
+
   async function handleVoiceSignal({
     fromParticipantId,
     targetParticipantId,
@@ -538,8 +549,8 @@ export function RoomShell({ slug }: { slug: string }) {
       return;
     }
 
-    requestPeerRefresh();
-  }, [localMediaVersion, participantId, socketConnected]);
+    renegotiateAllPeers();
+  }, [localMediaVersion, participantId, participantIdsKey, socketConnected]);
 
   useEffect(() => {
     if (!room) {
@@ -745,7 +756,6 @@ export function RoomShell({ slug }: { slug: string }) {
       audioTrack.enabled = nextEnabled;
       setMicrophoneEnabled(nextEnabled);
       emitParticipantMediaPatch({ isMuted: !nextEnabled, status: nextEnabled ? "listening" : "online" });
-      requestPeerRefresh();
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Microphone permission was blocked.");
@@ -766,7 +776,6 @@ export function RoomShell({ slug }: { slug: string }) {
       videoTrack.enabled = nextEnabled;
       setCameraEnabled(nextEnabled);
       emitParticipantMediaPatch({ cameraEnabled: nextEnabled });
-      requestPeerRefresh();
       setError("");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Camera permission was blocked.");
