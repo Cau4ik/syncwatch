@@ -8,14 +8,29 @@ const now = () => new Date().toLocaleTimeString("ru-RU", { hour: "2-digit", minu
 interface StoredRoom extends RoomState {
   ownerName: string;
   persistent: boolean;
+  emptySince: number | null;
 }
+
+const TEMP_ROOM_IDLE_TTL_MS = 1000 * 60 * 30;
 
 function appUrl(path: string) {
   return `${env.WEB_URL.trim().replace(/\/$/, "")}${path}`;
 }
 
+function isExpired(room: StoredRoom) {
+  return !room.persistent && room.emptySince !== null && Date.now() - room.emptySince > TEMP_ROOM_IDLE_TTL_MS;
+}
+
+function purgeExpiredRooms() {
+  for (const [slug, room] of rooms.entries()) {
+    if (isExpired(room)) {
+      rooms.delete(slug);
+    }
+  }
+}
+
 function toRoomState(room: StoredRoom): RoomState {
-  const { ownerName: _ownerName, persistent: _persistent, ...state } = room;
+  const { ownerName: _ownerName, persistent: _persistent, emptySince: _emptySince, ...state } = room;
 
   return {
     ...state,
@@ -65,13 +80,16 @@ const demoRoom: StoredRoom = {
     }
   ],
   ownerName: "Alex",
-  persistent: true
+  persistent: true,
+  emptySince: null
 };
 
 const rooms = new Map<string, StoredRoom>([[demoRoom.slug, demoRoom]]);
 
 export const store = {
   listRooms(ownerId?: string) {
+    purgeExpiredRooms();
+
     if (!ownerId) {
       return [];
     }
@@ -91,6 +109,7 @@ export const store = {
   },
 
   getRoom(slug: string) {
+    purgeExpiredRooms();
     const room = rooms.get(slug);
     return room ? toRoomState(room) : null;
   },
@@ -146,7 +165,8 @@ export const store = {
         }
       ],
       ownerName,
-      persistent
+      persistent,
+      emptySince: null
     };
 
     rooms.set(slug, nextRoom);
@@ -158,20 +178,33 @@ export const store = {
   },
 
   upsertParticipant(slug: string, participant: Participant) {
+    purgeExpiredRooms();
     const currentRoom = rooms.get(slug);
     if (!currentRoom) return null;
+
+    if (currentRoom.participants.length === 0) {
+      currentRoom.hostId = participant.id;
+      currentRoom.ownerName = participant.name;
+      participant = {
+        ...participant,
+        role: "host"
+      };
+    }
 
     const existing = currentRoom.participants.find((item) => item.id === participant.id);
     if (existing) {
       Object.assign(existing, participant);
+      currentRoom.emptySince = null;
       return toRoomState(currentRoom);
     }
 
     currentRoom.participants.push(participant);
+    currentRoom.emptySince = null;
     return toRoomState(currentRoom);
   },
 
   removeParticipant(slug: string, participantId: string) {
+    purgeExpiredRooms();
     const currentRoom = rooms.get(slug);
     if (!currentRoom) {
       return { room: null, deleted: false };
@@ -179,15 +212,28 @@ export const store = {
 
     currentRoom.participants = currentRoom.participants.filter((item) => item.id !== participantId);
 
-    if (!currentRoom.persistent && currentRoom.participants.length === 0) {
-      rooms.delete(slug);
-      return { room: null, deleted: true };
+    if (currentRoom.participants.length === 0) {
+      currentRoom.emptySince = Date.now();
+      return { room: toRoomState(currentRoom), deleted: false };
+    }
+
+    currentRoom.emptySince = null;
+
+    if (currentRoom.hostId === participantId) {
+      const nextHost = currentRoom.participants[0];
+      currentRoom.hostId = nextHost.id;
+      currentRoom.ownerName = nextHost.name;
+      currentRoom.participants = currentRoom.participants.map((item) => ({
+        ...item,
+        role: item.id === nextHost.id ? "host" : item.role === "host" ? "user" : item.role
+      }));
     }
 
     return { room: toRoomState(currentRoom), deleted: false };
   },
 
   addMessage(slug: string, payload: Omit<ChatMessage, "id" | "createdAt">) {
+    purgeExpiredRooms();
     const currentRoom = rooms.get(slug);
     if (!currentRoom) return null;
 
@@ -212,6 +258,7 @@ export const store = {
   },
 
   updatePlayback(slug: string, patch: Partial<PlaybackSnapshot>) {
+    purgeExpiredRooms();
     const currentRoom = rooms.get(slug);
     if (!currentRoom) return null;
 

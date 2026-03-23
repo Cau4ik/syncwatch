@@ -71,7 +71,7 @@ export default function HomePage() {
         />
         <InfoCard
           title="Temporary room sessions"
-          text="Source-created rooms are treated like watch sessions and can disappear after everyone leaves."
+          text="Source-created rooms behave like watch sessions and stay alive for a short grace period after everyone leaves."
         />
       </section>
     </div>

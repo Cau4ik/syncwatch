@@ -318,7 +318,7 @@ export function RoomShell({ slug }: { slug: string }) {
           <div className="space-y-3 text-sm text-mist">
             <p>Source: {getSourceLabel(room.playback.sourceType)}</p>
             <p>Socket sync connected</p>
-            <p>Temporary room session: closes when everyone leaves</p>
+            <p>Temporary room session: stays available for a short grace period after everyone leaves</p>
             <p>Invite link points directly to this selected source room</p>
           </div>
         </section>
