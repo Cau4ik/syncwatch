@@ -1,6 +1,7 @@
-export const apiUrl =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:4000";
+function normalizeUrl(value: string | undefined, fallback: string) {
+  return value?.trim().replace(/\/$/, "") || fallback;
+}
 
-export const socketUrl =
-  process.env.NEXT_PUBLIC_SOCKET_URL?.replace(/\/$/, "") || apiUrl;
+export const apiUrl = normalizeUrl(process.env.NEXT_PUBLIC_API_URL, "http://localhost:4000");
 
+export const socketUrl = normalizeUrl(process.env.NEXT_PUBLIC_SOCKET_URL, apiUrl);
