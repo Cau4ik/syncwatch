@@ -1,3 +1,5 @@
+import type { SourceType } from "@syncwatch/shared";
+
 import { apiUrl } from "./config";
 
 export async function apiFetch<T>(
@@ -51,4 +53,5 @@ export interface RoomSummary {
   visibility: "public" | "unlisted" | "private";
   participantsCount: number;
   playbackState: "idle" | "playing" | "paused";
+  sourceType: SourceType;
 }

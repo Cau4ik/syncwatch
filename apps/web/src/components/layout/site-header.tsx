@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { Clapperboard, Link2, Users } from "lucide-react";
+import { Clapperboard, Sparkles } from "lucide-react";
+
 import { SessionMenu } from "@/components/layout/session-menu";
 
 export function SiteHeader() {
@@ -12,24 +13,30 @@ export function SiteHeader() {
           </div>
           <div>
             <div className="font-display text-lg font-semibold tracking-tight">SyncWatch</div>
-            <div className="text-xs text-mist">watch together, stay in sync</div>
+            <div className="text-xs text-mist">pick a source, then watch together</div>
           </div>
         </Link>
 
         <nav className="hidden items-center gap-6 text-sm text-mist md:flex">
-          <Link href="/" className="transition hover:text-white">Главная</Link>
-          <Link href="/dashboard" className="transition hover:text-white">Мои комнаты</Link>
-          <Link href="/rooms/cyber-city-night" className="transition hover:text-white">Демо-комната</Link>
+          <Link href="/" className="transition hover:text-white">
+            Sources
+          </Link>
+          <Link href="/launch/youtube" className="transition hover:text-white">
+            Launch room
+          </Link>
+          <Link href="/dashboard" className="transition hover:text-white">
+            My rooms
+          </Link>
         </nav>
 
         <div className="flex items-center gap-3">
-          <button className="hidden rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/90 lg:flex lg:items-center lg:gap-2">
-            <Users className="h-4 w-4" />
-            8 участников
-          </button>
-          <button className="hidden rounded-full border border-white/10 bg-white/5 p-3 text-white/90 lg:block">
-            <Link2 className="h-4 w-4" />
-          </button>
+          <Link
+            href="/launch/youtube"
+            className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/90 lg:inline-flex"
+          >
+            <Sparkles className="h-4 w-4 text-flare" />
+            Start from source
+          </Link>
           <SessionMenu />
         </div>
       </div>

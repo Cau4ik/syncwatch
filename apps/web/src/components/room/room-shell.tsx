@@ -1,6 +1,6 @@
 "use client";
 
-import { AudioLines, Copy, Heart, Link2, Mic, PanelRight, ShieldCheck, UsersRound, Video } from "lucide-react";
+import { AudioLines, Copy, ExternalLink, Heart, Link2, Mic, PanelRight, ShieldCheck, UsersRound, Video } from "lucide-react";
 import type { ChatMessage, RoomState } from "@syncwatch/shared";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
@@ -10,9 +10,9 @@ import { ChatPanel } from "@/components/room/chat-panel";
 import { ParticipantsPanel } from "@/components/room/participants-panel";
 import { apiFetch } from "@/lib/api";
 import { socketUrl } from "@/lib/config";
+import { clearRoomPresence, loadRoomPresence, saveRoomPresence } from "@/lib/room-presence";
 import { loadSession, subscribeSessionChange, type SessionState } from "@/lib/session";
-
-const roomJoinStorageKey = (slug: string) => `syncwatch-room-${slug}`;
+import { getSourceLabel } from "@/lib/sources";
 
 export function RoomShell({ slug }: { slug: string }) {
   const [room, setRoom] = useState<RoomState | null>(null);
@@ -35,15 +35,12 @@ export function RoomShell({ slug }: { slug: string }) {
     let active = true;
 
     autoJoinRef.current = false;
-    setParticipantId("");
     setError("");
+    setLoading(true);
 
-    const storedName = window.localStorage.getItem(roomJoinStorageKey(slug));
-    if (storedName) {
-      setGuestName(storedName);
-    } else {
-      setGuestName(loadSession()?.user.username ?? "");
-    }
+    const presence = loadRoomPresence(slug);
+    setGuestName(presence.name || loadSession()?.user.username || "");
+    setParticipantId(presence.participantId);
 
     apiFetch<RoomState>(`/api/rooms/${slug}`)
       .then((data) => {
@@ -52,6 +49,8 @@ export function RoomShell({ slug }: { slug: string }) {
       })
       .catch((cause: Error) => {
         if (!active) return;
+        clearRoomPresence(slug);
+        setParticipantId("");
         setError(cause.message);
       })
       .finally(() => {
@@ -72,39 +71,17 @@ export function RoomShell({ slug }: { slug: string }) {
     }
 
     const participantName = guestName.trim() || session?.user.username?.trim();
-    if (!participantName) {
+    if (!participantName || !session) {
       return;
     }
 
     autoJoinRef.current = true;
-
-    void (async () => {
-      setJoining(true);
-      setError("");
-
-      try {
-        const joined = await apiFetch<RoomState & { participantId: string }>(`/api/rooms/${slug}/join`, {
-          method: "POST",
-          body: JSON.stringify({ name: participantName }),
-          token: session?.accessToken
-        });
-
-        window.localStorage.setItem(roomJoinStorageKey(slug), participantName);
-        setGuestName(participantName);
-        setParticipantId(joined.participantId);
-        setRoom(joined);
-      } catch (cause) {
-        autoJoinRef.current = false;
-        setError(cause instanceof Error ? cause.message : "Не удалось войти в комнату.");
-      } finally {
-        setJoining(false);
-      }
-    })();
-  }, [guestName, joining, participantId, room, session, slug]);
+    void joinRoom(participantName);
+  }, [guestName, joining, participantId, room, session]);
 
   useEffect(() => {
     const participantName = guestName.trim() || session?.user.username?.trim() || "";
-    if (!participantId || !participantName || socketRef.current) {
+    if (!room || !participantId || !participantName || socketRef.current) {
       return;
     }
 
@@ -118,7 +95,7 @@ export function RoomShell({ slug }: { slug: string }) {
       socket.emit("room:join", {
         roomSlug: slug,
         name: participantName,
-        role: session ? (session.user.id === room?.hostId ? "host" : "user") : "guest",
+        role: room && participantId === room.hostId ? "host" : session ? "user" : "guest",
         participantId
       });
     });
@@ -154,15 +131,15 @@ export function RoomShell({ slug }: { slug: string }) {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [guestName, participantId, room?.hostId, session, slug]);
+  }, [guestName, participantId, room, session, slug]);
 
   const canInteract = Boolean(room && participantId);
 
-  async function joinRoom() {
-    const participantName = guestName.trim() || session?.user.username?.trim() || "";
+  async function joinRoom(nameOverride?: string) {
+    const participantName = nameOverride?.trim() || guestName.trim() || session?.user.username?.trim() || "";
 
     if (!participantName) {
-      setError("Введите имя для входа в комнату.");
+      setError("Enter a name to join this room.");
       return;
     }
 
@@ -176,13 +153,17 @@ export function RoomShell({ slug }: { slug: string }) {
         token: session?.accessToken
       });
 
-      window.localStorage.setItem(roomJoinStorageKey(slug), participantName);
+      saveRoomPresence(slug, {
+        name: participantName,
+        participantId: joined.participantId
+      });
+
       setGuestName(participantName);
       setParticipantId(joined.participantId);
       setRoom(joined);
     } catch (cause) {
       autoJoinRef.current = false;
-      setError(cause instanceof Error ? cause.message : "Не удалось войти в комнату.");
+      setError(cause instanceof Error ? cause.message : "Failed to join room.");
     } finally {
       setJoining(false);
     }
@@ -206,7 +187,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
   function seek(deltaSeconds: number) {
     if (!socketRef.current || !room) return;
-    const nextTime = Math.max(0, Math.min(room.playback.duration, room.playback.currentTime + deltaSeconds));
+    const nextTime = Math.max(0, Math.min(room.playback.duration || 0, room.playback.currentTime + deltaSeconds));
     socketRef.current.emit("video:seek", {
       roomSlug: slug,
       currentTime: nextTime
@@ -219,20 +200,20 @@ export function RoomShell({ slug }: { slug: string }) {
     try {
       await navigator.clipboard.writeText(room.inviteUrl);
     } catch {
-      setError("Не удалось скопировать ссылку комнаты.");
+      setError("Failed to copy room link.");
     }
   }
 
   if (loading) {
-    return <RoomStateCard title="Загружаем комнату..." description="Получаем room snapshot и состояние участников." />;
+    return <RoomStateCard title="Loading room..." description="Fetching room state, source, and participant list." />;
   }
 
   if (error && !room) {
-    return <RoomStateCard title="Комната недоступна" description={error} />;
+    return <RoomStateCard title="Room unavailable" description={error} />;
   }
 
   if (!room) {
-    return <RoomStateCard title="Комната не найдена" description="Проверь slug или создай новую комнату." />;
+    return <RoomStateCard title="Room not found" description="Check the invite link or start a new room from the source launcher." />;
   }
 
   return (
@@ -240,7 +221,7 @@ export function RoomShell({ slug }: { slug: string }) {
       <div className="space-y-6">
         <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/20 bg-amber-300/10 px-4 py-2 text-sm text-amber-100">
           <ShieldCheck className="h-4 w-4" />
-          Private room - Host authority enabled
+          Source attached room
         </div>
 
         <PlayerFrame playback={room.playback} onTogglePlayback={togglePlayback} onSeek={seek} />
@@ -249,15 +230,15 @@ export function RoomShell({ slug }: { slug: string }) {
           <div>
             <div className="mb-2 text-4xl font-semibold tracking-tight text-white">{room.title}</div>
             <div className="mb-6 flex flex-wrap items-center gap-3 text-sm text-mist">
-              <span>Создал host</span>
+              <span>{getSourceLabel(room.playback.sourceType)}</span>
               <span className="h-1 w-1 rounded-full bg-white/20" />
               <span>{room.category}</span>
               <span className="h-1 w-1 rounded-full bg-white/20" />
-              <span>{room.participants.length} участников</span>
+              <span>{room.participants.length} participants</span>
             </div>
 
             <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5">
-              <div className="mb-3 text-xs uppercase tracking-[0.24em] text-mist">Ссылка на комнату</div>
+              <div className="mb-3 text-xs uppercase tracking-[0.24em] text-mist">Room invite link</div>
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-[#08111b] px-4 py-4 text-white">
                 <div className="truncate">{room.inviteUrl}</div>
                 <button type="button" onClick={copyInviteLink} className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">
@@ -268,45 +249,57 @@ export function RoomShell({ slug }: { slug: string }) {
           </div>
 
           <div className="grid gap-4">
-            <button className="flex items-center justify-center gap-3 rounded-[22px] bg-white px-5 py-4 text-base font-semibold text-slate-950">
-              <Video className="h-5 w-5" />
-              Добавить видео
-            </button>
+            {room.playback.sourceUrl ? (
+              <a
+                href={room.playback.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center justify-center gap-3 rounded-[22px] bg-white px-5 py-4 text-base font-semibold text-slate-950"
+              >
+                <ExternalLink className="h-5 w-5" />
+                Open source
+              </a>
+            ) : (
+              <button className="flex items-center justify-center gap-3 rounded-[22px] bg-white px-5 py-4 text-base font-semibold text-slate-950">
+                <Video className="h-5 w-5" />
+                Source attached
+              </button>
+            )}
             <button className="flex items-center justify-center gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] px-5 py-4 text-base font-medium text-white">
               <AudioLines className="h-5 w-5" />
-              Включить голосовой чат
+              Voice room
             </button>
             <button className="flex items-center justify-center gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] px-5 py-4 text-base font-medium text-white">
               <PanelRight className="h-5 w-5" />
-              Открыть side panels
+              Side panels
             </button>
           </div>
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <ActionPill icon={<UsersRound className="h-5 w-5" />} label="Пригласить" />
-          <ActionPill icon={<Mic className="h-5 w-5" />} label="Микрофон" />
-          <ActionPill icon={<Video className="h-5 w-5" />} label="Камера" />
-          <ActionPill icon={<Heart className="h-5 w-5" />} label="Реакции" />
+          <ActionPill icon={<UsersRound className="h-5 w-5" />} label="Invite" />
+          <ActionPill icon={<Mic className="h-5 w-5" />} label="Microphone" />
+          <ActionPill icon={<Video className="h-5 w-5" />} label="Camera" />
+          <ActionPill icon={<Heart className="h-5 w-5" />} label="Reactions" />
         </section>
 
         {!canInteract ? (
           <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-6">
-            <div className="mb-3 text-2xl font-semibold text-white">Войти в комнату</div>
-            <p className="mb-5 text-sm text-mist">Для синхронизации, чата и голоса нужно зайти по имени. Регистрация не обязательна.</p>
+            <div className="mb-3 text-2xl font-semibold text-white">Join this room</div>
+            <p className="mb-5 text-sm text-mist">Enter a name if you opened the invite as a guest. Signed-in users can auto-join with their account name.</p>
             <div className="flex flex-col gap-3 sm:flex-row">
               <input
                 value={guestName}
                 onChange={(event) => setGuestName(event.target.value)}
-                placeholder="Твое имя"
+                placeholder="Your name"
                 className="h-12 flex-1 rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-white outline-none placeholder:text-mist"
               />
               <button
-                onClick={joinRoom}
+                onClick={() => void joinRoom()}
                 disabled={joining}
                 className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60"
               >
-                {joining ? "Подключаем..." : "Войти"}
+                {joining ? "Joining..." : "Join room"}
               </button>
             </div>
             {error ? <div className="mt-3 text-sm text-amber-200">{error}</div> : null}
@@ -320,13 +313,13 @@ export function RoomShell({ slug }: { slug: string }) {
         <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-5">
           <div className="mb-3 flex items-center gap-3 text-white">
             <Link2 className="h-5 w-5 text-signal" />
-            Voice & sync panel
+            Room status
           </div>
           <div className="space-y-3 text-sm text-mist">
-            <p>Voice channel: connected</p>
-            <p>Socket latency: 42 ms</p>
-            <p>Soft resync: every 4 seconds</p>
-            <p>Host controls locked to room owner</p>
+            <p>Source: {getSourceLabel(room.playback.sourceType)}</p>
+            <p>Socket sync connected</p>
+            <p>Temporary room session: closes when everyone leaves</p>
+            <p>Invite link points directly to this selected source room</p>
           </div>
         </section>
       </div>

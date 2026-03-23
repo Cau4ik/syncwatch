@@ -1,7 +1,9 @@
 import type { FastifyInstance } from "fastify";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import type { LaunchSource } from "@syncwatch/shared";
 
+import { buildPlaybackFromLaunch, getSourceCategory } from "../../lib/source-playback.js";
 import { getRequestUser } from "../../lib/request-user.js";
 import { store } from "../../lib/store.js";
 
@@ -9,9 +11,24 @@ const createRoomSchema = z.object({
   title: z.string().min(3).max(80)
 });
 
+const launchRoomSchema = z.object({
+  source: z.enum(["youtube", "vkvideo", "rutube", "twitch", "file", "link"]),
+  value: z.string().min(2).max(2048),
+  title: z.string().min(2).max(120).optional(),
+  hostName: z.string().min(2).max(24).optional()
+});
+
 const joinRoomSchema = z.object({
   name: z.string().min(2).max(24).optional()
 });
+
+function createFallbackPlayback() {
+  return buildPlaybackFromLaunch({
+    source: "youtube",
+    rawValue: "jNQXAC9IVRw",
+    title: "Quick room"
+  });
+}
 
 export async function roomRoutes(app: FastifyInstance) {
   app.get("/api/rooms", async (request) => {
@@ -26,13 +43,46 @@ export async function roomRoutes(app: FastifyInstance) {
     }
 
     const body = createRoomSchema.parse(request.body);
-    const room = store.createRoom({
+    const created = store.createRoom({
       title: body.title,
       ownerId: user.id,
-      ownerName: user.username
+      ownerName: user.username,
+      playback: createFallbackPlayback(),
+      category: "YouTube"
     });
 
-    return reply.code(201).send({ slug: room.slug });
+    return reply.code(201).send({ slug: created.room.slug, participantId: created.participantId });
+  });
+
+  app.post("/api/rooms/from-source", async (request, reply) => {
+    const user = getRequestUser(request);
+    const body = launchRoomSchema.parse(request.body);
+
+    const ownerName = user?.username ?? body.hostName?.trim();
+    if (!ownerName) {
+      return reply.code(400).send({ message: "Host name is required" });
+    }
+
+    const source = body.source as LaunchSource;
+    const playback = buildPlaybackFromLaunch({
+      source,
+      rawValue: body.value,
+      title: body.title
+    });
+
+    const created = store.createRoom({
+      title: body.title?.trim() || `${getSourceCategory(source)} room`,
+      ownerId: user?.id ?? `guest-host-${nanoid(8)}`,
+      ownerName,
+      playback,
+      category: getSourceCategory(source)
+    });
+
+    return reply.code(201).send({
+      slug: created.room.slug,
+      participantId: created.participantId,
+      participantName: ownerName
+    });
   });
 
   app.get("/api/rooms/:slug", async (request, reply) => {

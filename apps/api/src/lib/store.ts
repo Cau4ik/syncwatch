@@ -25,39 +25,41 @@ function toRoomState(room: StoredRoom): RoomState {
   };
 }
 
-function createPlayback(): PlaybackSnapshot {
+function createDemoPlayback(): PlaybackSnapshot {
   return {
     sourceType: "youtube",
-    sourceRef: "dQw4w9WgXcQ",
-    title: "Neon Skyline Cut",
-    currentTime: 2732,
-    duration: 8095,
-    state: "playing",
+    sourceRef: "jNQXAC9IVRw",
+    title: "Me at the zoo",
+    sourceUrl: "https://www.youtube.com/watch?v=jNQXAC9IVRw",
+    embedUrl: "https://www.youtube.com/embed/jNQXAC9IVRw?rel=0",
+    currentTime: 0,
+    duration: 19,
+    state: "paused",
     playbackRate: 1,
     serverTimestamp: Date.now()
   };
 }
 
-const room: StoredRoom = {
+const demoRoom: StoredRoom = {
   id: "room_demo_1",
   slug: "cyber-city-night",
-  title: "Вечер кино с друзьями",
-  category: "Фантастика",
+  title: "Demo cinema room",
+  category: "YouTube",
   hostId: "user_alex",
   visibility: "private",
   inviteUrl: appUrl("/rooms/cyber-city-night"),
-  playback: createPlayback(),
+  playback: createDemoPlayback(),
   participants: [
-    { id: "user_alex", name: "Алекс", role: "host", avatar: "А", status: "online" },
-    { id: "user_masha", name: "Маша", role: "user", avatar: "М", status: "online" }
+    { id: "user_alex", name: "Alex", role: "host", avatar: "A", status: "online" },
+    { id: "user_masha", name: "Masha", role: "user", avatar: "M", status: "online" }
   ],
   messages: [
     {
       id: nanoid(),
       authorId: "system",
-      authorName: "Система",
+      authorName: "System",
       avatar: "S",
-      text: "Комната готова к входу.",
+      text: "Room is ready for a shared session.",
       createdAt: now(),
       type: "system"
     }
@@ -66,7 +68,7 @@ const room: StoredRoom = {
   persistent: true
 };
 
-const rooms = new Map<string, StoredRoom>([[room.slug, room]]);
+const rooms = new Map<string, StoredRoom>([[demoRoom.slug, demoRoom]]);
 
 export const store = {
   listRooms(ownerId?: string) {
@@ -83,7 +85,8 @@ export const store = {
         category: item.category,
         visibility: item.visibility,
         participantsCount: item.participants.length,
-        playbackState: item.playback.state
+        playbackState: item.playback.state,
+        sourceType: item.playback.sourceType
       }));
   },
 
@@ -92,34 +95,66 @@ export const store = {
     return room ? toRoomState(room) : null;
   },
 
-  createRoom({ title, ownerId, ownerName }: { title: string; ownerId: string; ownerName: string }) {
-    const slug = `${title.toLowerCase().replace(/\s+/g, "-")}-${nanoid(6)}`;
+  createRoom({
+    title,
+    ownerId,
+    ownerName,
+    playback,
+    category,
+    visibility = "unlisted",
+    persistent = false
+  }: {
+    title: string;
+    ownerId: string;
+    ownerName: string;
+    playback: PlaybackSnapshot;
+    category: string;
+    visibility?: RoomState["visibility"];
+    persistent?: boolean;
+  }) {
+    const slug = `${title.toLowerCase().replace(/[^a-z0-9а-яё]+/gi, "-").replace(/^-+|-+$/g, "") || "room"}-${nanoid(6)}`;
+    const hostParticipant: Participant = {
+      id: ownerId,
+      name: ownerName,
+      role: "host",
+      avatar: ownerName.charAt(0).toUpperCase(),
+      status: "online"
+    };
+
     const nextRoom: StoredRoom = {
       id: nanoid(),
       slug,
       title,
-      category: "Новая комната",
+      category,
       hostId: ownerId,
-      visibility: "unlisted",
+      visibility,
       inviteUrl: appUrl(`/rooms/${slug}`),
       playback: {
-        sourceType: "youtube",
-        sourceRef: "jNQXAC9IVRw",
-        title: "Room not started",
-        currentTime: 0,
-        duration: 300,
-        state: "idle",
-        playbackRate: 1,
+        ...playback,
         serverTimestamp: Date.now()
       },
-      participants: [],
-      messages: [],
+      participants: [hostParticipant],
+      messages: [
+        {
+          id: nanoid(),
+          authorId: "system",
+          authorName: "System",
+          avatar: "S",
+          text: `${ownerName} started a new ${category} room.`,
+          createdAt: now(),
+          type: "system"
+        }
+      ],
       ownerName,
-      persistent: false
+      persistent
     };
 
     rooms.set(slug, nextRoom);
-    return toRoomState(nextRoom);
+
+    return {
+      room: toRoomState(nextRoom),
+      participantId: hostParticipant.id
+    };
   },
 
   upsertParticipant(slug: string, participant: Participant) {

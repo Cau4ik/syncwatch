@@ -1,4 +1,5 @@
-export type SourceType = "youtube" | "upload" | "hls" | "internal";
+export type LaunchSource = "youtube" | "vkvideo" | "rutube" | "twitch" | "file" | "link";
+export type SourceType = "youtube" | "vkvideo" | "rutube" | "twitch" | "upload" | "hls" | "url" | "internal";
 export type PlaybackState = "idle" | "playing" | "paused";
 export type RoomRole = "host" | "moderator" | "user" | "guest";
 
@@ -26,6 +27,8 @@ export interface PlaybackSnapshot {
   sourceType: SourceType;
   sourceRef: string;
   title: string;
+  sourceUrl?: string;
+  embedUrl?: string;
   coverImage?: string;
   currentTime: number;
   duration: number;
@@ -59,4 +62,3 @@ export interface VideoSeekPayload extends RoomEventPayload {
 export interface VideoStatePayload extends RoomEventPayload {
   playback: PlaybackSnapshot;
 }
-
