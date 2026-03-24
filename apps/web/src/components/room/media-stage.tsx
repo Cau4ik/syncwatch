@@ -15,7 +15,7 @@ export function MediaStage({
   remoteVolumes: Record<string, number>;
 }) {
   return (
-    <div className="hidden" aria-hidden="true">
+    <div className="pointer-events-none absolute h-0 w-0 overflow-hidden opacity-0" aria-hidden="true">
       {remoteMediaTiles.map((tile) => (
         <RemoteAudio key={tile.participantId} stream={tile.stream} volume={remoteVolumes[tile.participantId] ?? 1} />
       ))}
@@ -31,6 +31,7 @@ function RemoteAudio({
   volume: number;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioTrackCount = stream.getAudioTracks().length;
 
   useEffect(() => {
     if (!audioRef.current) {
@@ -39,8 +40,10 @@ function RemoteAudio({
 
     audioRef.current.srcObject = stream;
     audioRef.current.volume = volume;
-    void audioRef.current.play().catch(() => {});
-  }, [stream, volume]);
+    if (audioTrackCount > 0) {
+      void audioRef.current.play().catch(() => {});
+    }
+  }, [audioTrackCount, stream, volume]);
 
   return <audio ref={audioRef} autoPlay playsInline />;
 }

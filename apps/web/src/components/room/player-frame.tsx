@@ -16,9 +16,9 @@ declare global {
           videoId: string;
           playerVars?: Record<string, string | number>;
           events?: {
-          onReady?: () => void;
-        };
-      }
+            onReady?: () => void;
+          };
+        }
       ) => {
         loadVideoById: (videoId: string, startSeconds?: number) => void;
         playVideo: () => void;
@@ -149,8 +149,10 @@ export function PlayerFrame({
           autoplay: 0,
           controls: 0,
           disablekb: 1,
+          enablejsapi: 1,
           fs: 0,
           iv_load_policy: 3,
+          origin: window.location.origin,
           rel: 0,
           modestbranding: 1,
           playsinline: 1
@@ -176,7 +178,7 @@ export function PlayerFrame({
     const player = youtubePlayerRef.current;
     const currentTime = player.getCurrentTime?.() ?? 0;
 
-    if (Math.abs(currentTime - effectiveCurrentTime) > 1.25) {
+    if (Math.abs(currentTime - effectiveCurrentTime) > 0.75) {
       player.seekTo(effectiveCurrentTime, true);
     }
 
@@ -196,7 +198,7 @@ export function PlayerFrame({
 
     const video = htmlVideoRef.current;
 
-    if (Math.abs(video.currentTime - effectiveCurrentTime) > 1.25) {
+    if (Math.abs(video.currentTime - effectiveCurrentTime) > 0.75) {
       video.currentTime = effectiveCurrentTime;
     }
 
@@ -224,15 +226,20 @@ export function PlayerFrame({
         }
 
         const rawState = player.getPlayerState?.();
+        if (rawState !== 1 && rawState !== 2) {
+          return;
+        }
+
         const state: PlaybackSnapshot["state"] =
           rawState === 1 ? "playing" : rawState === 2 ? "paused" : playback.state;
+        const duration = player.getDuration?.() ?? playback.duration;
 
         onPlaybackTelemetry({
           currentTime: player.getCurrentTime?.() ?? 0,
-          duration: player.getDuration?.() ?? playback.duration,
+          ...(duration > 0 ? { duration } : {}),
           state
         });
-      }, 1000);
+      }, 500);
 
       return () => {
         window.clearInterval(interval);
@@ -251,7 +258,7 @@ export function PlayerFrame({
           duration: Number.isFinite(video.duration) ? video.duration : playback.duration,
           state: video.paused ? "paused" : "playing"
         });
-      }, 1000);
+      }, 500);
 
       return () => {
         window.clearInterval(interval);
