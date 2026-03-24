@@ -369,7 +369,7 @@ export function RoomShell({ slug }: { slug: string }) {
         });
       }
     } catch {
-      setError("Failed to negotiate live audio/video connection.");
+      setError("Не удалось настроить соединение для живого звука.");
     } finally {
       negotiationLocksRef.current.delete(remoteParticipantId);
     }
@@ -471,7 +471,7 @@ export function RoomShell({ slug }: { slug: string }) {
         await renegotiateWith(fromParticipantId);
       }
     } catch {
-      setError("Failed to process live audio/video signaling.");
+      setError("Не удалось обработать сигнал подключения звука.");
     }
   }
 
@@ -805,7 +805,7 @@ export function RoomShell({ slug }: { slug: string }) {
     const participantName = nameOverride?.trim() || guestName.trim() || session?.user.username?.trim() || "";
 
     if (!participantName) {
-      setError("Enter a name to join this room.");
+      setError("Введи имя, чтобы войти в комнату.");
       return;
     }
 
@@ -832,7 +832,7 @@ export function RoomShell({ slug }: { slug: string }) {
       setRoom(joined);
     } catch (cause) {
       autoJoinRef.current = false;
-      setError(cause instanceof Error ? cause.message : "Failed to join room.");
+      setError(cause instanceof Error ? cause.message : "Не удалось войти в комнату.");
     } finally {
       setJoining(false);
     }
@@ -840,12 +840,12 @@ export function RoomShell({ slug }: { slug: string }) {
 
   async function sendChat(text: string) {
     if (!canInteract) {
-      setError("Join the room before sending messages.");
-      throw new Error("Join the room before sending messages.");
+      setError("Сначала войди в комнату, а потом отправляй сообщения.");
+      throw new Error("Сначала войди в комнату, а потом отправляй сообщения.");
     }
 
     try {
-      const authorName = guestName.trim() || session?.user.username || "Guest";
+      const authorName = guestName.trim() || session?.user.username || "Гость";
       const message = await apiFetch<ChatMessage>(`/api/rooms/${slug}/messages`, {
         method: "POST",
         token: session?.accessToken,
@@ -875,7 +875,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
       setError("");
     } catch (cause) {
-      const nextError = cause instanceof Error ? cause.message : "Failed to send message.";
+      const nextError = cause instanceof Error ? cause.message : "Не удалось отправить сообщение.";
       setError(nextError);
       throw cause;
     }
@@ -918,7 +918,7 @@ export function RoomShell({ slug }: { slug: string }) {
       setCopiedInvite(true);
       window.setTimeout(() => setCopiedInvite(false), 1800);
     } catch {
-      setError("Failed to copy room link.");
+      setError("Не удалось скопировать ссылку комнаты.");
     }
   }
 
@@ -974,7 +974,7 @@ export function RoomShell({ slug }: { slug: string }) {
 
   async function ensureLocalMedia(options: { audio?: boolean; video?: boolean }) {
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Media devices are not available in this browser.");
+      throw new Error("Браузер не поддерживает доступ к микрофону.");
     }
 
     const localStream = localMediaStreamRef.current ?? new MediaStream();
@@ -1008,7 +1008,7 @@ export function RoomShell({ slug }: { slug: string }) {
       const localStream = await ensureLocalMedia({ audio: true });
       const audioTrack = localStream.getAudioTracks()[0];
       if (!audioTrack) {
-        setError("Microphone track is unavailable.");
+        setError("Не удалось получить аудиодорожку микрофона.");
         return;
       }
 
@@ -1018,20 +1018,20 @@ export function RoomShell({ slug }: { slug: string }) {
       emitParticipantMediaPatch({ isMuted: !nextEnabled, status: nextEnabled ? "listening" : "online" });
       setError("");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Microphone permission was blocked.");
+      setError(cause instanceof Error ? cause.message : "Доступ к микрофону был заблокирован.");
     }
   }
 
   if (loading) {
-    return <RoomStateCard title="Loading room..." description="Fetching room state, source, and participant list." />;
+    return <RoomStateCard title="Загрузка комнаты..." description="Получаем состояние комнаты, источник и список участников." />;
   }
 
   if (error && !room) {
-    return <RoomStateCard title="Room unavailable" description={error} />;
+    return <RoomStateCard title="Комната недоступна" description={error} />;
   }
 
   if (!room) {
-    return <RoomStateCard title="Room not found" description="Check the invite link or start a new room from the source launcher." />;
+    return <RoomStateCard title="Комната не найдена" description="Проверь ссылку-приглашение или запусти новую комнату из раздела источников." />;
   }
 
   const localParticipant = room.participants.find((participant) => participant.id === participantId) ?? null;
@@ -1042,7 +1042,7 @@ export function RoomShell({ slug }: { slug: string }) {
       <div className="space-y-6">
         <div className="inline-flex items-center gap-2 rounded-full border border-amber-300/20 bg-amber-300/10 px-4 py-2 text-sm text-amber-100">
           <ShieldCheck className="h-4 w-4" />
-          Source attached room
+          Комната с привязанным источником
         </div>
 
         <PlayerFrame
@@ -1063,11 +1063,11 @@ export function RoomShell({ slug }: { slug: string }) {
               <span className="h-1 w-1 rounded-full bg-white/20" />
               <span>{room.category}</span>
               <span className="h-1 w-1 rounded-full bg-white/20" />
-              <span>{displayParticipants.length} participants</span>
+              <span>{displayParticipants.length} участников</span>
             </div>
 
             <div className="rounded-[24px] border border-white/8 bg-white/[0.03] p-5">
-              <div className="mb-3 text-xs uppercase tracking-[0.24em] text-mist">Room invite link</div>
+              <div className="mb-3 text-xs uppercase tracking-[0.24em] text-mist">Ссылка на комнату</div>
               <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-[#08111b] px-4 py-4 text-white">
                 <div className="truncate">{room.inviteUrl}</div>
                 <button type="button" onClick={copyInviteLink} className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5">
@@ -1081,12 +1081,12 @@ export function RoomShell({ slug }: { slug: string }) {
             {room.playback.sourceUrl ? (
               <a href={room.playback.sourceUrl} target="_blank" rel="noreferrer" className="flex items-center justify-center gap-3 rounded-[22px] bg-white px-5 py-4 text-base font-semibold text-slate-950">
                 <ExternalLink className="h-5 w-5" />
-                Open source
+                Открыть источник
               </a>
             ) : (
               <button className="flex items-center justify-center gap-3 rounded-[22px] bg-white px-5 py-4 text-base font-semibold text-slate-950">
                 <Video className="h-5 w-5" />
-                Source attached
+                Источник подключен
               </button>
             )}
             <button
@@ -1095,7 +1095,7 @@ export function RoomShell({ slug }: { slug: string }) {
               className={`flex items-center justify-center gap-3 rounded-[22px] border px-5 py-4 text-base font-medium ${microphoneEnabled ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-100" : "border-white/10 bg-white/[0.03] text-white"}`}
             >
               <AudioLines className="h-5 w-5" />
-              {microphoneEnabled ? "Microphone on" : "Enable microphone"}
+              {microphoneEnabled ? "Микрофон включен" : "Включить микрофон"}
             </button>
             <button
               type="button"
@@ -1103,26 +1103,26 @@ export function RoomShell({ slug }: { slug: string }) {
               className="flex items-center justify-center gap-3 rounded-[22px] border border-white/10 bg-white/[0.03] px-5 py-4 text-base font-medium text-white"
             >
               <PanelRight className="h-5 w-5" />
-              {panelOpen ? "Hide side panels" : "Open side panels"}
+              {panelOpen ? "Скрыть боковые панели" : "Открыть боковые панели"}
             </button>
           </div>
         </section>
 
         <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <ActionPill icon={<UsersRound className="h-5 w-5" />} label={copiedInvite ? "Copied" : "Invite"} onClick={copyInviteLink} active={copiedInvite} />
-          <ActionPill icon={microphoneEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />} label={microphoneEnabled ? "Mic on" : "Microphone"} onClick={() => void toggleMicrophone()} active={microphoneEnabled} />
-          <ActionPill icon={<PanelRight className="h-5 w-5" />} label={panelOpen ? "Hide panels" : "Show panels"} onClick={() => setPanelOpen((current) => !current)} active={panelOpen} />
-          <ActionPill icon={<LogOut className="h-5 w-5" />} label="Leave room" onClick={() => void leaveRoom()} />
+          <ActionPill icon={<UsersRound className="h-5 w-5" />} label={copiedInvite ? "Скопировано" : "Пригласить"} onClick={copyInviteLink} active={copiedInvite} />
+          <ActionPill icon={microphoneEnabled ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />} label={microphoneEnabled ? "Микрофон включен" : "Микрофон"} onClick={() => void toggleMicrophone()} active={microphoneEnabled} />
+          <ActionPill icon={<PanelRight className="h-5 w-5" />} label={panelOpen ? "Скрыть панели" : "Показать панели"} onClick={() => setPanelOpen((current) => !current)} active={panelOpen} />
+          <ActionPill icon={<LogOut className="h-5 w-5" />} label="Выйти из комнаты" onClick={() => void leaveRoom()} />
         </section>
 
         {!canInteract ? (
           <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-6">
-            <div className="mb-3 text-2xl font-semibold text-white">Join this room</div>
-            <p className="mb-5 text-sm text-mist">Enter a name if you opened the invite as a guest. Signed-in users can auto-join with their account name.</p>
+            <div className="mb-3 text-2xl font-semibold text-white">Войти в комнату</div>
+            <p className="mb-5 text-sm text-mist">Если ты открыл инвайт как гость, введи имя. Авторизованные пользователи могут зайти под именем аккаунта.</p>
             <div className="flex flex-col gap-3 sm:flex-row">
-              <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Your name" className="h-12 flex-1 rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-white outline-none placeholder:text-mist" />
+              <input value={guestName} onChange={(event) => setGuestName(event.target.value)} placeholder="Твое имя" className="h-12 flex-1 rounded-2xl border border-white/10 bg-white/[0.03] px-4 text-white outline-none placeholder:text-mist" />
               <button type="button" onClick={() => void joinRoom()} disabled={joining} className="rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60">
-                {joining ? "Joining..." : "Join room"}
+                {joining ? "Входим..." : "Войти в комнату"}
               </button>
             </div>
             {error ? <div className="mt-3 text-sm text-amber-200">{error}</div> : null}
@@ -1142,15 +1142,15 @@ export function RoomShell({ slug }: { slug: string }) {
         <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90 p-5">
           <div className="mb-3 flex items-center gap-3 text-white">
             <Link2 className="h-5 w-5 text-signal" />
-            Room status
+            Статус комнаты
           </div>
           <div className="space-y-3 text-sm text-mist">
-            <p>Source: {getSourceLabel(room.playback.sourceType)}</p>
-            <p>Realtime: {socketConnected ? "connected" : "fallback sync mode"}</p>
-            <p>Microphone: {microphoneEnabled ? "enabled" : "off"}</p>
-            <p>Playback: one shared screen with synced play, pause, and seek</p>
-            <p>Playback leader: {isPlaybackLeader ? "you" : room.playbackLeaderId === room.hostId ? "room host" : "another participant"}</p>
-            <p>Temporary room session: stays available for a short grace period after everyone leaves</p>
+            <p>Источник: {getSourceLabel(room.playback.sourceType)}</p>
+            <p>Синхронизация: {socketConnected ? "подключена" : "резервный режим"}</p>
+            <p>Микрофон: {microphoneEnabled ? "включен" : "выключен"}</p>
+            <p>Просмотр: один общий экран с синхронным воспроизведением, паузой и перемоткой</p>
+            <p>Лидер воспроизведения: {isPlaybackLeader ? "ты" : room.playbackLeaderId === room.hostId ? "хост комнаты" : "другой участник"}</p>
+            <p>Временная сессия комнаты сохраняется еще короткое время после выхода всех участников</p>
           </div>
         </section>
         {error && room ? <div className="rounded-2xl border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">{error}</div> : null}

@@ -37,7 +37,7 @@ export function SourceGrid({ compact = false }: { compact?: boolean }) {
           </div>
           <div className="mb-2 text-2xl font-semibold text-white">{source.label}</div>
           <p className="mb-5 text-sm leading-6 text-mist">{source.description}</p>
-          <div className="text-sm font-medium text-flare">Choose source</div>
+          <div className="text-sm font-medium text-flare">Выбрать источник</div>
         </Link>
       ))}
     </div>

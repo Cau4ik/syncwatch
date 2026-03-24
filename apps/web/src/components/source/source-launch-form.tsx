@@ -32,12 +32,12 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
 
   async function submit() {
     if (!value.trim()) {
-      setError("Paste a source link first.");
+      setError("Сначала вставь ссылку на источник.");
       return;
     }
 
     if (!hostName.trim()) {
-      setError("Enter your name so the room owner is known.");
+      setError("Укажи имя, чтобы было понятно, кто создал комнату.");
       return;
     }
 
@@ -67,7 +67,7 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
 
       router.push(`/rooms/${result.slug}`);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Failed to create room.");
+      setError(cause instanceof Error ? cause.message : "Не удалось создать комнату.");
     } finally {
       setLoading(false);
     }
@@ -79,15 +79,17 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
         <section className="rounded-[36px] border border-white/8 bg-[linear-gradient(180deg,#111f2f,#08111b)] p-8 lg:p-10">
           <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-white/80">
             <Sparkles className="h-4 w-4 text-flare" />
-            Source-first watch party flow
+            Сначала источник, потом комната
           </div>
-          <h1 className="max-w-3xl font-display text-5xl font-semibold tracking-tight text-white">{source.label} launcher</h1>
+          <h1 className="max-w-3xl font-display text-5xl font-semibold tracking-tight text-white">
+            Запуск комнаты из {source.label}
+          </h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-mist">{source.helper}</p>
 
           <div className="mt-8 grid gap-4 rounded-[30px] border border-white/8 bg-white/[0.03] p-6 md:grid-cols-3">
-            <StepCard index="01" title="Open source" text="Browse the service in a new tab and choose the exact video or stream." />
-            <StepCard index="02" title="Paste link" text="Bring the public link back here. Add a room title if you want a custom name." />
-            <StepCard index="03" title="Create room" text="The room is generated with that source already attached. Then you just share the invite." />
+            <StepCard index="01" title="Открой источник" text="Перейди в сервис в новой вкладке и выбери конкретное видео или поток." />
+            <StepCard index="02" title="Вставь ссылку" text="Верни публичную ссылку сюда. При желании сразу задай название комнаты." />
+            <StepCard index="03" title="Создай комнату" text="Комната создается уже с этим источником. Потом остается только отправить инвайт." />
           </div>
 
           <div className="mt-8 flex flex-wrap gap-4">
@@ -98,7 +100,7 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
                 rel="noreferrer"
                 className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-slate-950"
               >
-                Open {source.label}
+                Открыть {source.label}
                 <ArrowUpRight className="h-4 w-4" />
               </a>
             ) : null}
@@ -106,31 +108,31 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
               href="/"
               className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-5 py-3 text-sm font-semibold text-white"
             >
-              Back to sources
+              Назад к источникам
             </Link>
           </div>
         </section>
 
         <section className="rounded-[36px] border border-white/8 bg-[#0a131f]/90 p-8">
-          <div className="mb-6 text-3xl font-semibold text-white">Create room from {source.label}</div>
+          <div className="mb-6 text-3xl font-semibold text-white">Создать комнату из {source.label}</div>
 
           <div className="space-y-4">
             <Field
-              label={session ? "Room owner" : "Your name"}
-              placeholder="Host name"
+              label={session ? "Владелец комнаты" : "Твое имя"}
+              placeholder="Имя создателя"
               value={hostName}
               onChange={setHostName}
             />
 
             <Field
-              label="Room title"
-              placeholder={`${source.label} watch party`}
+              label="Название комнаты"
+              placeholder={`${source.label} вместе`}
               value={title}
               onChange={setTitle}
             />
 
             <Field
-              label="Video or stream link"
+              label="Ссылка на видео или поток"
               placeholder={source.placeholder}
               value={value}
               onChange={setValue}
@@ -140,10 +142,11 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
           <div className="mt-5 rounded-[24px] border border-white/8 bg-white/[0.03] p-5 text-sm leading-6 text-mist">
             <div className="mb-2 flex items-center gap-2 text-white">
               <Link2 className="h-4 w-4 text-signal" />
-              Practical MVP note
+              Практическое примечание по MVP
             </div>
             <p>
-              This flow opens the source, lets you copy the chosen video URL, and creates the room from that URL. It avoids fake empty-room-first UX.
+              Этот режим открывает источник, дает скопировать ссылку на выбранное видео и создает комнату уже из этой ссылки.
+              Так пользователь не попадает сначала в пустую комнату.
             </p>
           </div>
 
@@ -155,7 +158,7 @@ export function SourceLaunchForm({ source }: { source: LaunchSourceDefinition })
             disabled={loading}
             className="mt-6 inline-flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-3.5 text-sm font-semibold text-slate-950 disabled:opacity-60"
           >
-            {loading ? "Creating room..." : "Create room and continue"}
+            {loading ? "Создаем комнату..." : "Создать комнату и продолжить"}
             <ChevronRight className="h-4 w-4" />
           </button>
         </section>

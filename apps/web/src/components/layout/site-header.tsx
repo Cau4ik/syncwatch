@@ -13,19 +13,19 @@ export function SiteHeader() {
           </div>
           <div>
             <div className="font-display text-lg font-semibold tracking-tight">SyncWatch</div>
-            <div className="text-xs text-mist">pick a source, then watch together</div>
+            <div className="text-xs text-mist">выбери источник и смотри вместе</div>
           </div>
         </Link>
 
         <nav className="hidden items-center gap-6 text-sm text-mist md:flex">
           <Link href="/" className="transition hover:text-white">
-            Sources
+            Источники
           </Link>
           <Link href="/launch/youtube" className="transition hover:text-white">
-            Launch room
+            Запуск комнаты
           </Link>
           <Link href="/dashboard" className="transition hover:text-white">
-            My rooms
+            Мои комнаты
           </Link>
         </nav>
 
@@ -35,7 +35,7 @@ export function SiteHeader() {
             className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/90 lg:inline-flex"
           >
             <Sparkles className="h-4 w-4 text-flare" />
-            Start from source
+            Начать с источника
           </Link>
           <SessionMenu />
         </div>

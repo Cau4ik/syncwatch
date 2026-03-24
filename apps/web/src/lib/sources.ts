@@ -14,17 +14,17 @@ export const launchSources: LaunchSourceDefinition[] = [
   {
     id: "youtube",
     label: "YouTube",
-    description: "Paste a YouTube link or video ID and launch a synced room.",
-    helper: "Open YouTube, pick a video, copy the link, then create the room.",
+    description: "Вставь ссылку на YouTube или ID видео и запусти синхронную комнату.",
+    helper: "Открой YouTube, выбери видео, скопируй ссылку и создай комнату.",
     placeholder: "https://www.youtube.com/watch?v=...",
     externalUrl: "https://www.youtube.com/",
     accent: "radial-gradient(circle at top left, rgba(255,111,97,0.22), transparent 48%)"
   },
   {
     id: "vkvideo",
-    label: "VK Video",
-    description: "Create a room from a public VK Video link.",
-    helper: "Pick a public VK Video item, copy its URL, then generate the room here.",
+    label: "VK Видео",
+    description: "Создай комнату по публичной ссылке VK Видео.",
+    helper: "Выбери публичное видео VK, скопируй ссылку и создай комнату здесь.",
     placeholder: "https://vk.com/video...",
     externalUrl: "https://vk.com/video",
     accent: "radial-gradient(circle at top left, rgba(76,139,245,0.24), transparent 48%)"
@@ -32,8 +32,8 @@ export const launchSources: LaunchSourceDefinition[] = [
   {
     id: "rutube",
     label: "Rutube",
-    description: "Launch a watch party from a Rutube public video page.",
-    helper: "Open Rutube, choose a video, and paste the public link.",
+    description: "Запусти совместный просмотр по публичной ссылке Rutube.",
+    helper: "Открой Rutube, выбери видео и вставь публичную ссылку.",
     placeholder: "https://rutube.ru/video/...",
     externalUrl: "https://rutube.ru/",
     accent: "radial-gradient(circle at top left, rgba(20,217,141,0.22), transparent 48%)"
@@ -41,26 +41,26 @@ export const launchSources: LaunchSourceDefinition[] = [
   {
     id: "twitch",
     label: "Twitch",
-    description: "Use a Twitch VOD or channel link as the room source.",
-    helper: "For live streams use a channel link. For replays use a /videos/... link.",
-    placeholder: "https://www.twitch.tv/... or /videos/...",
+    description: "Используй ссылку на Twitch-канал или запись как источник комнаты.",
+    helper: "Для стримов используй ссылку на канал. Для записей используй ссылку вида /videos/...",
+    placeholder: "https://www.twitch.tv/... или /videos/...",
     externalUrl: "https://www.twitch.tv/",
     accent: "radial-gradient(circle at top left, rgba(155,109,255,0.24), transparent 48%)"
   },
   {
     id: "file",
-    label: "File URL",
-    description: "Start a room from a direct MP4, WebM, or M3U8 file link.",
-    helper: "Use a direct media URL. Local desktop files are not uploaded in this MVP yet.",
+    label: "Ссылка на файл",
+    description: "Запусти комнату по прямой ссылке на MP4, WebM или M3U8.",
+    helper: "Используй прямую ссылку на медиафайл. Локальная загрузка с компьютера в этом MVP пока не поддерживается.",
     placeholder: "https://cdn.example.com/video.mp4",
     accent: "radial-gradient(circle at top left, rgba(255,202,87,0.24), transparent 48%)"
   },
   {
     id: "link",
-    label: "Web Link",
-    description: "Create a room from an embeddable page or HLS stream link.",
-    helper: "Use this for public embeds or stream links when there is no dedicated source card.",
-    placeholder: "https://example.com/embed/... or stream.m3u8",
+    label: "Веб-ссылка",
+    description: "Создай комнату по встраиваемой странице или ссылке на HLS-поток.",
+    helper: "Используй это для публичных embed-ссылок и потоков, если для сервиса нет отдельной карточки.",
+    placeholder: "https://example.com/embed/... или stream.m3u8",
     accent: "radial-gradient(circle at top left, rgba(124,247,212,0.22), transparent 48%)"
   }
 ];
@@ -71,15 +71,15 @@ export function getLaunchSource(source: string) {
 
 const sourceLabels: Record<SourceType | LaunchSource, string> = {
   youtube: "YouTube",
-  vkvideo: "VK Video",
+  vkvideo: "VK Видео",
   rutube: "Rutube",
   twitch: "Twitch",
-  file: "File URL",
-  link: "Web Link",
-  upload: "File URL",
-  hls: "Stream Link",
-  url: "Embed Link",
-  internal: "Internal"
+  file: "Ссылка на файл",
+  link: "Веб-ссылка",
+  upload: "Ссылка на файл",
+  hls: "Ссылка на поток",
+  url: "Embed-ссылка",
+  internal: "Внутренний источник"
 };
 
 export function getSourceLabel(source: SourceType | LaunchSource) {

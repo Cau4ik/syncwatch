@@ -26,7 +26,7 @@ export default function LoginPage() {
       saveSession(data);
       router.push("/dashboard");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Login failed");
+      setError(cause instanceof Error ? cause.message : "Не удалось войти в аккаунт.");
     } finally {
       setLoading(false);
     }
@@ -36,10 +36,13 @@ export default function LoginPage() {
     <div className="mx-auto flex min-h-[calc(100vh-88px)] w-full max-w-7xl items-center px-5 py-10 lg:px-8">
       <div className="grid w-full gap-8 lg:grid-cols-[1fr_460px]">
         <section className="rounded-[36px] border border-white/8 bg-[linear-gradient(180deg,#111f2f,#08111b)] p-8 lg:p-10">
-          <div className="mb-3 text-sm uppercase tracking-[0.24em] text-mist">Member access</div>
-          <h1 className="font-display text-5xl font-semibold tracking-tight text-white">Войти и продолжить комнату без потери истории.</h1>
+          <div className="mb-3 text-sm uppercase tracking-[0.24em] text-mist">Вход в аккаунт</div>
+          <h1 className="font-display text-5xl font-semibold tracking-tight text-white">
+            Войди и продолжи просмотр без потери своих комнат.
+          </h1>
           <p className="mt-5 max-w-xl text-lg leading-8 text-mist">
-            В этом MVP логин уже проходит через API. Сессия хранится локально, а следующий этап - нормальные refresh cookies и настоящая persistence layer.
+            В этом MVP вход уже проходит через API. Сессия хранится локально, а следующий этап - нормальные refresh cookie
+            и полноценная постоянная база.
           </p>
         </section>
 
@@ -50,17 +53,20 @@ export default function LoginPage() {
             void submit();
           }}
         >
-          <div className="mb-6 text-3xl font-semibold text-white">Login</div>
+          <div className="mb-6 text-3xl font-semibold text-white">Вход</div>
           <div className="space-y-4">
-            <Field label="Email" placeholder="you@example.com" type="email" value={email} onChange={setEmail} />
-            <Field label="Password" placeholder="Minimum 8 characters" type="password" value={password} onChange={setPassword} />
+            <Field label="Почта" placeholder="you@example.com" type="email" value={email} onChange={setEmail} />
+            <Field label="Пароль" placeholder="Минимум 8 символов" type="password" value={password} onChange={setPassword} />
           </div>
           <button className="mt-6 w-full rounded-full bg-white px-5 py-3.5 text-sm font-semibold text-slate-950" disabled={loading}>
             {loading ? "Входим..." : "Войти"}
           </button>
           {error ? <div className="mt-4 text-sm text-amber-200">{error}</div> : null}
           <div className="mt-6 text-sm text-mist">
-            Нет аккаунта? <Link href="/register" className="text-flare">Создать</Link>
+            Нет аккаунта?{" "}
+            <Link href="/register" className="text-flare">
+              Создать
+            </Link>
           </div>
         </form>
       </div>
@@ -94,4 +100,3 @@ function Field({
     </label>
   );
 }
-

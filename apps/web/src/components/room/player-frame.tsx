@@ -281,7 +281,7 @@ export function PlayerFrame({
             rel="noreferrer"
             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-white/80"
           >
-            Open original
+            Открыть источник
             <ExternalLink className="h-4 w-4" />
           </a>
         ) : null}
@@ -342,7 +342,7 @@ export function PlayerFrame({
 
           <div className="flex items-center gap-3 text-sm text-mist">
             <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-emerald-200">
-              {canSyncControls ? "Sync controls ready" : "Provider embed mode"}
+              {canSyncControls ? "Синхронизация готова" : "Режим встроенного плеера"}
             </div>
           </div>
         </div>

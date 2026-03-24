@@ -2,14 +2,13 @@ export default function PrivacyPage() {
   return (
     <div className="mx-auto max-w-4xl px-5 py-12 lg:px-8">
       <div className="rounded-[36px] border border-white/8 bg-[#0a131f]/85 p-8 lg:p-10">
-        <h1 className="mb-6 font-display text-4xl font-semibold text-white">Privacy Policy</h1>
+        <h1 className="mb-6 font-display text-4xl font-semibold text-white">Политика конфиденциальности</h1>
         <div className="space-y-4 leading-8 text-mist">
-          <p>SyncWatch stores account information, room participation data, chat logs, lawful uploads, and basic service telemetry required to operate watch-party rooms.</p>
-          <p>Voice and chat are shared only with participants in the same room. Uploaded content must be lawful and authorized by the uploader.</p>
-          <p>This page is a legal placeholder and must be replaced with production-ready legal text before launch.</p>
+          <p>SyncWatch хранит данные аккаунта, участие в комнатах, историю чата, разрешенные загрузки и базовую служебную телеметрию, нужную для работы комнат совместного просмотра.</p>
+          <p>Голос и чат доступны только участникам одной и той же комнаты. Загруженный контент должен быть законным и разрешенным со стороны пользователя, который его добавил.</p>
+          <p>Эта страница пока является юридической заглушкой и должна быть заменена на полноценный юридический текст до публичного запуска.</p>
         </div>
       </div>
     </div>
   );
 }
-

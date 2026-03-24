@@ -24,8 +24,8 @@ export function ParticipantsPanel({
   return (
     <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90">
       <div className="border-b border-white/8 px-5 py-4">
-        <div className="text-xl font-semibold text-white">Participants ({participants.length})</div>
-        <div className="text-sm text-mist">Speaking status and per-person volume.</div>
+        <div className="text-xl font-semibold text-white">Участники ({participants.length})</div>
+        <div className="text-sm text-mist">Статус разговора и громкость для каждого участника.</div>
       </div>
 
       <div className="space-y-3 px-5 py-5">
@@ -57,7 +57,7 @@ export function ParticipantsPanel({
                 </div>
                 <div className="flex items-center gap-2 text-sm text-mist">
                   {participant.isMuted ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4 text-emerald-300" />}
-                  <span>{participant.isSpeaking ? "Speaking" : participant.status}</span>
+                  <span>{participant.isSpeaking ? "Говорит" : getParticipantStatusLabel(participant.status)}</span>
                 </div>
               </div>
             </div>
@@ -65,7 +65,7 @@ export function ParticipantsPanel({
             <div className="flex min-w-[150px] items-center gap-3">
               <Volume2 className="h-4 w-4 shrink-0 text-mist" />
               {participant.isLocal ? (
-                <div className="text-xs uppercase tracking-[0.18em] text-mist">You</div>
+                <div className="text-xs uppercase tracking-[0.18em] text-mist">Ты</div>
               ) : (
                 <input
                   type="range"
@@ -83,4 +83,17 @@ export function ParticipantsPanel({
       </div>
     </section>
   );
+}
+
+function getParticipantStatusLabel(status: DisplayParticipant["status"]) {
+  switch (status) {
+    case "typing":
+      return "Печатает";
+    case "listening":
+      return "Слушает";
+    case "away":
+      return "Отошел";
+    default:
+      return "Онлайн";
+  }
 }

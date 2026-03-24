@@ -19,7 +19,7 @@ const display = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: "SyncWatch",
-  description: "Watch-party web app for rooms, chat, voice and synced video playback."
+  description: "Веб-приложение для комнат совместного просмотра, чата, голоса и синхронного воспроизведения видео."
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

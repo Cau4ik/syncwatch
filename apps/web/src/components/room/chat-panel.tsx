@@ -1,8 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { SendHorizonal, Smile } from "lucide-react";
 import type { ChatMessage } from "@syncwatch/shared";
-import { useState } from "react";
 
 const EMOJIS = ["😀", "😂", "😍", "🔥", "👏", "😮", "😭", "👍"];
 
@@ -21,8 +21,8 @@ export function ChatPanel({
   return (
     <section className="rounded-[28px] border border-white/8 bg-[#0a131f]/90">
       <div className="border-b border-white/8 px-5 py-4">
-        <div className="text-xl font-semibold text-white">Chat</div>
-        <div className="text-sm text-mist">System events and live discussion in one room feed.</div>
+        <div className="text-xl font-semibold text-white">Чат</div>
+        <div className="text-sm text-mist">Системные события и живое обсуждение в одной ленте.</div>
       </div>
 
       <div className="max-h-[470px] space-y-4 overflow-y-auto px-5 py-5">
@@ -92,7 +92,7 @@ export function ChatPanel({
           <input
             value={text}
             onChange={(event) => setText(event.target.value)}
-            placeholder="Write a message..."
+            placeholder="Написать сообщение..."
             disabled={disabled}
             className="h-11 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-mist"
           />

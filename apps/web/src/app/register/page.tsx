@@ -27,7 +27,7 @@ export default function RegisterPage() {
       saveSession(data);
       router.push("/dashboard");
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Register failed");
+      setError(cause instanceof Error ? cause.message : "Не удалось создать аккаунт.");
     } finally {
       setLoading(false);
     }
@@ -37,10 +37,13 @@ export default function RegisterPage() {
     <div className="mx-auto flex min-h-[calc(100vh-88px)] w-full max-w-7xl items-center px-5 py-10 lg:px-8">
       <div className="grid w-full gap-8 lg:grid-cols-[1fr_520px]">
         <section className="rounded-[36px] border border-white/8 bg-[linear-gradient(180deg,#111f2f,#08111b)] p-8 lg:p-10">
-          <div className="mb-3 text-sm uppercase tracking-[0.24em] text-mist">Create account</div>
-          <h1 className="font-display text-5xl font-semibold tracking-tight text-white">Создай профиль, комнаты и свой каталог загрузок.</h1>
+          <div className="mb-3 text-sm uppercase tracking-[0.24em] text-mist">Создание аккаунта</div>
+          <h1 className="font-display text-5xl font-semibold tracking-tight text-white">
+            Создай профиль, комнаты и свою историю просмотров.
+          </h1>
           <p className="mt-5 max-w-xl text-lg leading-8 text-mist">
-            В текущем MVP регистрация уже идет через API. Потом это нужно перевести на настоящую БД и полноценный session management.
+            В текущем MVP регистрация уже идет через API. Потом это нужно перевести на настоящую базу данных и
+            полноценное управление сессией.
           </p>
         </section>
 
@@ -51,18 +54,21 @@ export default function RegisterPage() {
             void submit();
           }}
         >
-          <div className="mb-6 text-3xl font-semibold text-white">Register</div>
+          <div className="mb-6 text-3xl font-semibold text-white">Регистрация</div>
           <div className="space-y-4">
-            <Field label="Username" placeholder="alexfilms" type="text" value={username} onChange={setUsername} />
-            <Field label="Email" placeholder="you@example.com" type="email" value={email} onChange={setEmail} />
-            <Field label="Password" placeholder="Minimum 8 characters" type="password" value={password} onChange={setPassword} />
+            <Field label="Имя пользователя" placeholder="alexfilms" type="text" value={username} onChange={setUsername} />
+            <Field label="Почта" placeholder="you@example.com" type="email" value={email} onChange={setEmail} />
+            <Field label="Пароль" placeholder="Минимум 8 символов" type="password" value={password} onChange={setPassword} />
           </div>
           <button className="mt-6 w-full rounded-full bg-white px-5 py-3.5 text-sm font-semibold text-slate-950" disabled={loading}>
             {loading ? "Создаем..." : "Создать аккаунт"}
           </button>
           {error ? <div className="mt-4 text-sm text-amber-200">{error}</div> : null}
           <div className="mt-6 text-sm text-mist">
-            Уже есть аккаунт? <Link href="/login" className="text-flare">Войти</Link>
+            Уже есть аккаунт?{" "}
+            <Link href="/login" className="text-flare">
+              Войти
+            </Link>
           </div>
         </form>
       </div>
